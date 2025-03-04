@@ -1,0 +1,13 @@
+ID,project_name,module_name,url,sha,commit_n_25
+1,Achilles,integration-test-2_1,https://github.com/doanduyhai/Achilles.git,e3099bdce342910951c4862c78751fd81ed4552e,ab38a6de54e100038b082a9a7e4e252e641420d2
+12,dubbo,dubbo-cluster,https://github.com/apache/dubbo.git,737f7a7ea67832d7f17517326fb2491d0a086dd7,7f926d9991ba69dba25b56925e4cc5ffcdf50afa
+14,dubbo,dubbo-config/dubbo-config-api,https://github.com/apache/dubbo.git,737f7a7ea67832d7f17517326fb2491d0a086dd7,7f926d9991ba69dba25b56925e4cc5ffcdf50afa
+22,hadoop,hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-hs,https://github.com/apache/hadoop.git,cc2babc1f75c93bf89a8f10da525f944c15d02ea,5edb9d3b972ad51e23b9cac7928b38876068a463
+24,http-request,lib,https://github.com/kevinsawicki/http-request.git,2d62a3e9da726942a93cf16b6e91c0187e6c0136,1238aaeb85da22961903b285997dcce919cbe059
+25,jhipster-registry,.,https://github.com/jhipster/jhipster-registry.git,00db36611da5fc7aaf9d5372aa90f2465d80c0c4,75e9fd131b6f8dde6e05eefc3fc2b8be888b1309
+27,openpojo,.,https://github.com/openpojo/openpojo.git,9badbcc4593e797accfed5e51bec9f2b843f0f67,a5c33a032735588a068e85df7cd3c0f65e54cb40
+28,riptide,riptide-spring-boot-starter,https://github.com/zalando/riptide.git,8277e11fc069d8e24df0d233ef2577cc75659b75,e7de0833bdc87911f8c9b01778c33cd072f6f3b7
+29,shardingsphere-elasticjob,elastic-job-lite-core,https://github.com/apache/shardingsphere-elasticjob.git,b022898ef1b8c984e17efb2a422ee45f6b13e46e,582f57c060e4e6c37912794a9877da0bd4db0961
+30,spring-boot,spring-boot-project/spring-boot,https://github.com/spring-projects/spring-boot.git,daa3d457b71896a758995c264977bdd1414ee4d4,a2203268f9a870c5b092eba3e543dbd1056de155
+31,spring-boot,spring-boot-project/spring-boot-actuator-autoconfigure,https://github.com/spring-projects/spring-boot.git,daa3d457b71896a758995c264977bdd1414ee4d4,b473f2996d846a393c75f2aad0421e5d5d643971
+37,unix4j,unix4j-core/unix4j-command,https://github.com/tools4j/unix4j.git,367da7d262e682a08577cdf19ebbbdd8a46870fe,38209543b60ef3ba0ca052daba0448e8b9f86550
