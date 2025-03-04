@@ -11,6 +11,10 @@ execution_time_record_dir="$script_dir/../runs_n25/execution_time_record"
 mvn_instance_base_dir="$script_dir/../mvn_instances"
 apache_zip_dir="$script_dir/apache-maven-3.6.3-bin.zip"
 
+java_8_home="/usr/lib/jvm/java-8-openjdk-amd64"
+java_11_home="/usr/lib/jvm/java-11-openjdk-amd64"
+java_17_home="/usr/lib/jvm/java-17-openjdk-amd64"
+
 num_of_orders=26
 num_of_executions=3
 
@@ -60,6 +64,33 @@ setup_custom_surefire_on_mvn_instance() {
     ls $mvn_instance_base_dir/$module_id/maven/lib/ext/
 }
 
+inject_plugin_management() {
+  local pom_file="$1"
+  if [[ ! -f "$pom_file" ]]; then
+    echo "Error: File '$pom_file' not found." >&2
+    return 1
+  fi
+
+  # Create a backup of the original pom.xml
+  cp "$pom_file" "${pom_file}.bak"
+  echo "Backup created at ${pom_file}.bak"
+
+  # Use sed to insert the pluginManagement block before the closing </build> tag.
+  # Note: On macOS you might need to change `sed -i` to `sed -i ''`.
+  sed -i "/<\/build>/i\\
+<pluginManagement>\\
+  <plugins>\\
+    <plugin>\\
+      <groupId>org.apache.felix</groupId>\\
+      <artifactId>maven-bundle-plugin</artifactId>\\
+      <version>\2.5.0</version>\\
+    </plugin>\\
+  </plugins>\\
+</pluginManagement>" "$pom_file"
+
+  echo "Injected pluginManagement block into $pom_file"
+}
+
 fix_project_for_init_run() {
     echo "Fixing project for initial run"
     cd $project_path
@@ -78,6 +109,10 @@ fix_project_for_init_run() {
         echo "Achilles project, changing the version of the maven-surefire-plugin"
         ls | grep pom.xml
         sed -i 's~http://repo1.maven.org/maven2~https://repo1.maven.org/maven2~g' pom.xml
+        find . -name "pom.xml" -type f -exec sed -i 's/6.0.1-SNAPSHOT/6.0.1/g' {} +
+        # sed -i '/<plugin>/,/<\/plugin>/ {/maven-bundle-plugin/ {s|</artifactId>|</artifactId>\n    <version>2.5.0</version>|}}' pom.xml
+        # sed -i '/<\/build>/i <pluginManagement>\n  <plugins>\n    <plugin>\n      <groupId>org.apache.felix</groupId>\n      <artifactId>maven-bundle-plugin</artifactId>\n      <version>${maven-bundle-plugin.version}</vein>\n  </plugins>\n</pluginManagement>' pom.xml
+        inject_plugin_management pom.xml
 
     elif [[ "$project_name" == "spring-data-envers" ]]; then
         echo "Spring-data-envers project, changing the version of the spring-data-releasetrain"
@@ -93,7 +128,7 @@ run_init_maven_test() {
 
     echo "Running maven install on $project_path"
     cd $project_path
-    mvn test -pl $module -am $MVNINSTALLOPTIONS
+    mvn clean test -pl $module -am $MVNINSTALLOPTIONS
     cd -
 
     echo "Running maven install on $module_path"
