@@ -110,8 +110,6 @@ fix_project_for_init_run() {
         ls | grep pom.xml
         sed -i 's~http://repo1.maven.org/maven2~https://repo1.maven.org/maven2~g' pom.xml
         find . -name "pom.xml" -type f -exec sed -i 's/6.0.1-SNAPSHOT/6.0.1/g' {} +
-        # sed -i '/<plugin>/,/<\/plugin>/ {/maven-bundle-plugin/ {s|</artifactId>|</artifactId>\n    <version>2.5.0</version>|}}' pom.xml
-        # sed -i '/<\/build>/i <pluginManagement>\n  <plugins>\n    <plugin>\n      <groupId>org.apache.felix</groupId>\n      <artifactId>maven-bundle-plugin</artifactId>\n      <version>${maven-bundle-plugin.version}</vein>\n  </plugins>\n</pluginManagement>' pom.xml
         inject_plugin_management pom.xml
 
     elif [[ "$project_name" == "spring-data-envers" ]]; then
@@ -128,7 +126,7 @@ run_init_maven_test() {
 
     echo "Running maven install on $project_path"
     cd $project_path
-    mvn clean test -pl $module -am $MVNINSTALLOPTIONS
+    mvn clean install -pl $module -am $MVNINSTALLOPTIONS -DskipTests
     cd -
 
     echo "Running maven install on $module_path"
@@ -136,7 +134,7 @@ run_init_maven_test() {
     cd $module_path
     rm -rf $init_runs_base_dir/surefire-reports
     mkdir -p $init_runs_base_dir/surefire-reports
-    mvn install $MVNINSTALLOPTIONS 2>&1 | tee $init_runs_base_dir/maven_log.log
+    mvn test $MVNINSTALLOPTIONS 2>&1 | tee $init_runs_base_dir/maven_log.log
     cp $module_path/target/surefire-reports/* $init_runs_base_dir/surefire-reports/
     cd -
 }
