@@ -115,6 +115,25 @@ fix_project_for_init_run() {
     elif [[ "$project_name" == "spring-data-envers" ]]; then
         echo "Spring-data-envers project, changing the version of the spring-data-releasetrain"
         sed -i 's~2.2.0.BUILD-SNAPSHOT~2.2.0.RELEASE~g' pom.xml
+
+    elif [[ "$project_name" == "dubbo" ]]; then
+        # change 2.7.0-SNAPSHOT to 2.7.0 in the pom.xml
+        echo "Dubbo project, changing the version of the dubbo-parent"
+        find . -name "pom.xml" -type f -exec sed -i 's/2.7.0-SNAPSHOT/2.7.0/g' {} +
+
+    elif [[ "$project_name" == "hadoop" ]]; then
+        echo "fixing hadoop, changing the version of the apacheds-server-integ to 2.0.0.AM27 from 2.0.0-M21"
+        # find . -name "pom.xml" -type f -exec sed -i 's/2.0.0-M21/2.0.0.AM27/g' {} +
+        # sudo apt-get install autoconf automake libtool curl make g++ unzip -y --allow-unauthenticated
+        wget -nv https://github.com/protocolbuffers/protobuf/releases/download/v2.5.0/protobuf-2.5.0.tar.gz
+        tar -zxvf protobuf-2.5.0.tar.gz
+        cd protobuf-2.5.0 || continue # Continue if directory doesn't exist
+        # ./configure
+        ./configure --prefix=/usr/local
+        make -j15
+        make install
+        ldconfig
+        cd ..
     fi
 
     cd -

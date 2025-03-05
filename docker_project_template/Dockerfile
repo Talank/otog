@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install necessary packages
 RUN apt-get update && \
-    apt-get install -y git python3 python3-pip wget unzip openjdk-8-jdk openjdk-11-jdk openjdk-17-jdk bc sed && \
+    apt-get install -y git python3 python3-pip make autoconf automake libtool curl g++ wget unzip openjdk-8-jdk openjdk-11-jdk openjdk-17-jdk bc sed && \
     apt-get clean
 
 # # Install OpenJDK 11 and Maven

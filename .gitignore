@@ -2,3 +2,4 @@ results/1/runs_n25/init_runs/1/maven_log.log
 results
 *.log
 docker_project_template/scripts/apache-maven-3.6.3-bin.zip
+results_backup
