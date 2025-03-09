@@ -1,0 +1,1 @@
+create optimal_order_reduced_dataset where i put id.txt and then put the most optimal order there, based on naive approach

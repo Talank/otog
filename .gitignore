@@ -3,3 +3,8 @@ results
 *.log
 docker_project_template/scripts/apache-maven-3.6.3-bin.zip
 results_backup
+results_backup_vn25
+random_test_order_generation_ML/random_orders_1/
+greedy/summarized_data/
+random_test_order_generation_ML/
+results_error_v50
