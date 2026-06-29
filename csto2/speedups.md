@@ -3,6 +3,7 @@
 | apache/commons-csv | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | |
 | javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | used javaparser-core-testing; alloc-front and pkg-alloc-front are the same speedup |
 | apache/commons-text | naive | 18185ms | 15657ms | 13.9% | 13.9% | Second best was jit-front with 13.6%
+| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | 
 
 # Logs
 
@@ -99,3 +100,34 @@
 => SHIP: naive  (15657ms, 13.9% faster than initial) [green]
 ```
 
+## commons-math
+
+```
+=== CANDIDATE MEASUREMENTS ===
+  alloc-front            runs=4 median=17862ms min=16605ms max=18316ms  GREEN
+  jit-front              runs=4 median=17732ms min=17033ms max=18223ms  GREEN
+  jfr-warmup-front       runs=4 median=17506ms min=16400ms max=18001ms  GREEN
+  initial                runs=4 median=17195ms min=15024ms max=17436ms  GREEN
+  pkg-alloc+observed-intra runs=4 median=17690ms min=16372ms max=17852ms  GREEN
+  alloc-front+warm-tail  runs=4 median=17208ms min=16278ms max=17433ms  GREEN
+  alloc-sort             runs=4 median=17555ms min=16755ms max=17568ms  GREEN
+  warm-tail              runs=4 median=17825ms min=16939ms max=18457ms  GREEN
+  pkg-alloc-front        runs=4 median=16268ms min=16184ms max=17531ms  GREEN
+  pkg-rt-front           runs=4 median=16613ms min=14572ms max=16669ms  GREEN
+  intra-warmup           runs=4 median=17637ms min=16489ms max=18169ms  GREEN
+  naive                  runs=4 median=16422ms min=15712ms max=16700ms  GREEN
+
+  alloc-front            -3.9% vs initial
+  jit-front              -3.1% vs initial
+  jfr-warmup-front       -1.8% vs initial
+  pkg-alloc+observed-intra -2.9% vs initial
+  alloc-front+warm-tail  -0.1% vs initial
+  alloc-sort             -2.1% vs initial
+  warm-tail              -3.7% vs initial
+  pkg-alloc-front        +5.4% vs initial
+  pkg-rt-front           +3.4% vs initial
+  intra-warmup           -2.6% vs initial
+  naive                  +4.5% vs initial
+
+=> SHIP: pkg-alloc-front  (16268ms, 5.4% faster than initial) [green]
+```
