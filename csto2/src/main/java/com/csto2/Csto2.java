@@ -205,6 +205,12 @@ public final class Csto2 {
         // so any shipped order must be at least as correct as initial AND faster.
         System.err.println("[csto2] optimizing all " + tests.size() + " classes; will ship only a fully-green order");
 
+        // Approaches the user disabled in the wizard / CLI. 'initial' and 'naive' are protected and can
+        // never be skipped (incumbent + free baseline). Only the measurement of a disabled strategy is
+        // avoided — and for pairwise-warm, also its causal-confirmation probe runs below.
+        java.util.Set<String> skip = csv(a.get("skip-candidates"));
+        skip.removeAll(Candidates.PROTECTED_NAMES);
+
         Map<String, Candidates.Stat> stats = Candidates.stats(tracePath);
         Map<String, List<String>> cands = Candidates.generate(tests, stats, tracePath, heavyAllocMB, coldSlope, maxResid);
 
@@ -217,20 +223,25 @@ public final class Csto2 {
 
         // Producer->consumer cache-warming candidate: trace-mine pairs (allocation-shed fingerprint),
         // then CAUSALLY CONFIRM each with a 2-class probe before trusting it. Applied as a minimal
-        // perturbation of initial. Confounded co-occurrence pairs are rejected by the probe.
-        double minConsumerAllocMB = Double.parseDouble(a.getOrDefault("pair-consumer-mb", "1000"));
-        double minProducerAllocMB = Double.parseDouble(a.getOrDefault("pair-producer-mb", "200"));
-        double pairDropFrac = Double.parseDouble(a.getOrDefault("pair-drop-frac", "0.25"));
-        List<Candidates.PairSig> raw = Candidates.detectPairs(tracePath, stats,
-                minConsumerAllocMB, minProducerAllocMB, /*minAllocDropMB*/ 1000, pairDropFrac);
-        for (Candidates.PairSig ps : raw)
-            System.err.printf("[csto2] warm-pair candidate (trace): %s -> %s  (sheds %.0fMB, ~%.0fms)%n",
-                    ps.producer.substring(ps.producer.lastIndexOf('.') + 1),
-                    ps.consumer.substring(ps.consumer.lastIndexOf('.') + 1), ps.allocDropMB, ps.rtDropMs);
-        List<Candidates.PairSig> confirmed = raw.isEmpty() ? raw
-                : Candidates.confirmPairs(discover, outDir.resolve("probe"), raw, pairDropFrac);
-        if (!confirmed.isEmpty())
-            cands.put("pairwise-warm", Candidates.applyPairsMinimal(tests, confirmed));
+        // perturbation of initial. Confounded co-occurrence pairs are rejected by the probe. Skipped
+        // entirely when disabled, so its (real-JVM) confirmation probe is avoided too.
+        if (skip.contains("pairwise-warm")) {
+            System.err.println("[csto2] approach disabled: pairwise-warm (skipping pair detection + probe)");
+        } else {
+            double minConsumerAllocMB = Double.parseDouble(a.getOrDefault("pair-consumer-mb", "1000"));
+            double minProducerAllocMB = Double.parseDouble(a.getOrDefault("pair-producer-mb", "200"));
+            double pairDropFrac = Double.parseDouble(a.getOrDefault("pair-drop-frac", "0.25"));
+            List<Candidates.PairSig> raw = Candidates.detectPairs(tracePath, stats,
+                    minConsumerAllocMB, minProducerAllocMB, /*minAllocDropMB*/ 1000, pairDropFrac);
+            for (Candidates.PairSig ps : raw)
+                System.err.printf("[csto2] warm-pair candidate (trace): %s -> %s  (sheds %.0fMB, ~%.0fms)%n",
+                        ps.producer.substring(ps.producer.lastIndexOf('.') + 1),
+                        ps.consumer.substring(ps.consumer.lastIndexOf('.') + 1), ps.allocDropMB, ps.rtDropMs);
+            List<Candidates.PairSig> confirmed = raw.isEmpty() ? raw
+                    : Candidates.confirmPairs(discover, outDir.resolve("probe"), raw, pairDropFrac);
+            if (!confirmed.isEmpty())
+                cands.put("pairwise-warm", Candidates.applyPairsMinimal(tests, confirmed));
+        }
 
         // JFR-driven candidates: classify tests by MECHANISM (full-GC carriers, shareable-warmup
         // carriers) from per-test JFR facts aggregated across orders, and move those classes. Driven
@@ -250,6 +261,10 @@ public final class Csto2 {
         } else {
             System.err.println("[csto2] no JFR facts dir at " + jfrDir + " (run trace with --jfr to enable mechanism-driven candidates)");
         }
+
+        // Drop any disabled strategy that was generated above so it is never measured (the costly part).
+        for (String s : skip)
+            if (cands.remove(s) != null) System.err.println("[csto2] approach disabled: " + s);
 
         for (Map.Entry<String, List<String>> e : cands.entrySet()) {
             Files.write(outDir.resolve(e.getKey() + ".order"),
@@ -555,6 +570,13 @@ public final class Csto2 {
         String v = a.get(k);
         if (v == null || v.isBlank()) throw new IllegalArgumentException("Missing --" + k);
         return v;
+    }
+
+    /** Split a comma/whitespace-separated value into an ordered, de-duplicated set (empty if null). */
+    private static java.util.Set<String> csv(String v) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        if (v != null) for (String s : v.split("[,\\s]+")) if (!s.isBlank()) out.add(s.trim());
+        return out;
     }
 
     private static void usage() {

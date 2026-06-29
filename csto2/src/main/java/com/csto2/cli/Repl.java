@@ -1,6 +1,7 @@
 package com.csto2.cli;
 
 import com.csto2.Csto2;
+import com.csto2.optimize.Candidates;
 import com.csto2.surefire.SurefireTestFilter;
 
 import java.io.BufferedReader;
@@ -86,6 +87,7 @@ public final class Repl {
                     case "1" -> configure();
                     case "2" -> state();
                     case "e" -> exclude();
+                    case "a" -> approaches();
                     case "p" -> project();
                     case "3" -> discover();
                     case "4" -> analyze();
@@ -111,6 +113,7 @@ public final class Repl {
         System.out.println("  1) configure        set classpath / tests / JVM args / params");
         System.out.println("  2) state            show current config + produced artifacts");
         System.out.println("  e) exclude          drop test classes from the current test list");
+        System.out.println("  a) approaches       enable/disable candidate strategies (select)");
         System.out.println("  p) project          autodetect cp + tests + workdir from a Maven project");
         System.out.println("  --- stages ---");
         System.out.println("  3) discover         filter the test list to runnable classes");
@@ -171,7 +174,7 @@ public final class Repl {
 
     private void select() throws Exception {
         require("cp"); require("tests"); requireFile("trace");
-        Map<String, String> a = args("cp", "trace", "jfr-dir", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline");
+        Map<String, String> a = args("cp", "trace", "jfr-dir", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "skip-candidates");
         a.put("tests", cfg.get("tests"));
         a.put("out", baseDir().resolve("select").toString());
         Csto2.dispatch("select", a);
@@ -290,6 +293,59 @@ public final class Repl {
             }
         }
         return String.join(", ", hits);
+    }
+
+    // ---- approaches ----------------------------------------------------------------------------
+
+    /**
+     * Enable/disable the candidate strategies {@code select} runs. Disabled names are stored in
+     * {@code cfg["skip-candidates"]} and passed through to {@code select} as {@code --skip-candidates}
+     * (so the full pipeline honors them too); a disabled strategy is never measured. {@code initial}
+     * and {@code naive} are protected and always run. Affects only {@code select}; {@code validate}
+     * and {@code pairwise} use the slope model, not this portfolio.
+     */
+    private void approaches() throws Exception {
+        while (true) {
+            Set<String> disabled = disabledApproaches();
+            System.out.println();
+            System.out.println("--- candidate approaches (used by 'select') ---");
+            for (String name : Candidates.ALL_NAMES) {
+                boolean prot = Candidates.PROTECTED_NAMES.contains(name);
+                boolean on = prot || !disabled.contains(name);
+                System.out.printf("  [%s] %-26s%s%n", on ? "on " : "off", name, prot ? " (protected)" : "");
+            }
+            String line = prompt("toggle name(s) to flip, or Enter to finish");
+            if (line == null) return;
+            line = line.trim();
+            if (line.isEmpty()) break;
+            for (String tok : line.split("[,\\s]+")) {
+                if (tok.isEmpty()) continue;
+                if (!Candidates.ALL_NAMES.contains(tok)) {
+                    System.out.println("   unknown approach: " + tok);
+                } else if (Candidates.PROTECTED_NAMES.contains(tok)) {
+                    System.out.println("   cannot disable (protected): " + tok);
+                } else if (disabled.remove(tok)) {
+                    System.out.println("   enabled:  " + tok);
+                } else {
+                    disabled.add(tok);
+                    System.out.println("   disabled: " + tok);
+                }
+            }
+            if (disabled.isEmpty()) cfg.remove("skip-candidates");
+            else cfg.put("skip-candidates", String.join(",", disabled));
+        }
+        Set<String> disabled = disabledApproaches();
+        System.out.println(disabled.isEmpty()
+                ? "[approaches] all enabled."
+                : "[approaches] disabled: " + String.join(", ", disabled));
+    }
+
+    /** The current set of disabled candidate strategies (a fresh mutable copy from config). */
+    private Set<String> disabledApproaches() {
+        Set<String> out = new LinkedHashSet<>();
+        String v = cfg.get("skip-candidates");
+        if (v != null) for (String s : v.split("[,\\s]+")) if (!s.isBlank()) out.add(s.trim());
+        return out;
     }
 
     // ---- project autodetect ----------------------------------------------------------------------
@@ -474,6 +530,9 @@ public final class Repl {
             System.out.printf("  %-9s = %d class(es): %s%n", "exclude", ex.length,
                     Stream.of(ex).map(Repl::simple).collect(Collectors.joining(", ")));
         }
+        Set<String> disabled = disabledApproaches();
+        if (!disabled.isEmpty())
+            System.out.printf("  %-9s = %d disabled: %s%n", "approaches", disabled.size(), String.join(", ", disabled));
         System.out.println("  base out  = " + baseDir());
         reportRunnerStatus();
     }
