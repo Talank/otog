@@ -1,9 +1,10 @@
 | Project | Fastest Strategy | Initial Median Time | Naïve Median Time | Speedup Vs. Initial | Naïve Speedup Vs. Initial | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | apache/commons-csv | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | |
-| javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | used javaparser-core-testing; alloc-front and pkg-alloc-front are the same speedup |
+| javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | used `javaparser-core-testing`; alloc-front and pkg-alloc-front are the same speedup |
 | apache/commons-text | naive | 18185ms | 15657ms | 13.9% | 13.9% | Second best was jit-front with 13.6%
-| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | Ran commons-math-legacy; Excluded 3 RNG-dependent tests (simplex optimizers) |
+| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | Ran `commons-math-legacy`; Excluded 3 RNG-dependent tests (simplex optimizers) |
+| alibaba/fastjson2 | pkg-alloc-front | 22462ms | 23171ms | 1.1% | -3.2% | Ran `core`; did not run with all approaches |
 
 # Logs
 
@@ -130,4 +131,24 @@
   naive                  +4.5% vs initial
 
 => SHIP: pkg-alloc-front  (16268ms, 5.4% faster than initial) [green]
+```
+
+## fastjson2
+
+```
+=== CANDIDATE MEASUREMENTS ===
+  pkg-alloc-front        runs=4 median=22225ms min=21752ms max=28755ms  GREEN
+  alloc-front            runs=4 median=22329ms min=20884ms max=30967ms  GREEN
+  pkg-rt-front           runs=4 median=22699ms min=20684ms max=27009ms  GREEN
+  jit-front              runs=4 median=25223ms min=21982ms max=26049ms  GREEN
+  initial                runs=4 median=22462ms min=21079ms max=23473ms  GREEN
+  naive                  runs=4 median=23171ms min=21177ms max=24225ms  GREEN
+
+  pkg-alloc-front        +1.1% vs initial
+  alloc-front            +0.6% vs initial
+  pkg-rt-front           -1.1% vs initial
+  jit-front              -12.3% vs initial
+  naive                  -3.2% vs initial
+
+=> SHIP: pkg-alloc-front  (22225ms, 1.1% faster than initial) [green]
 ```
