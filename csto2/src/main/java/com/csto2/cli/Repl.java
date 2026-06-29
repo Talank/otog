@@ -12,8 +12,11 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -81,6 +84,7 @@ public final class Repl {
                 switch (choice) {
                     case "1" -> configure();
                     case "2" -> state();
+                    case "e" -> exclude();
                     case "p" -> project();
                     case "3" -> discover();
                     case "4" -> analyze();
@@ -105,6 +109,7 @@ public final class Repl {
         System.out.println("==== CSTO v2 ====  (base out: " + baseDir() + ")");
         System.out.println("  1) configure        set classpath / tests / JVM args / params");
         System.out.println("  2) state            show current config + produced artifacts");
+        System.out.println("  e) exclude          drop test classes from the current test list");
         System.out.println("  p) project          autodetect cp + tests + workdir from a Maven project");
         System.out.println("  --- stages ---");
         System.out.println("  3) discover         filter the test list to runnable classes");
@@ -192,6 +197,98 @@ public final class Repl {
         trace();
         select();
         System.out.println("[pipeline] done.");
+    }
+
+    // ---- exclude -------------------------------------------------------------------------------
+
+    /**
+     * Drop test classes from the current 'tests' list. Reads the current list as the source of truth,
+     * resolves every typed name against it (exact FQN, else unique simple name), and only if ALL names
+     * resolve cleanly writes a filtered {@code tests.included} file and re-points 'tests' at it. Any
+     * unmatched or ambiguous name aborts the whole operation, writing nothing. Resolved exclusions
+     * accumulate in {@code cfg["exclude"]} so repeated calls add up and {@link #state} can show them.
+     */
+    private void exclude() throws Exception {
+        requireFile("tests");
+        Path testsFile = Paths.get(cfg.get("tests"));
+        List<String> current = new ArrayList<>();
+        for (String line : Files.readAllLines(testsFile)) {
+            String t = line.trim();
+            if (!t.isEmpty()) current.add(t);
+        }
+        if (current.isEmpty()) {
+            System.out.println("[exclude] current test list is empty: " + testsFile);
+            return;
+        }
+
+        String raw = prompt("classes to exclude (FQN or simple name; comma/space separated)");
+        if (raw == null || raw.isBlank()) {
+            System.out.println("[exclude] nothing entered.");
+            return;
+        }
+
+        // Resolve every token before changing anything — any failure aborts the whole operation.
+        Set<String> toRemove = new LinkedHashSet<>();
+        List<String> problems = new ArrayList<>();
+        for (String tok : raw.trim().split("[,\\s]+")) {
+            if (tok.isEmpty()) continue;
+            List<String> matches = matchTests(tok, current);
+            if (matches.isEmpty()) {
+                String hint = nearMisses(tok, current);
+                problems.add("not found: " + tok + (hint.isEmpty() ? "" : "  (did you mean: " + hint + "?)"));
+            } else if (matches.size() > 1) {
+                problems.add("ambiguous: " + tok + " matches " + matches.size() + " classes: " + String.join(", ", matches));
+            } else {
+                toRemove.add(matches.get(0));
+            }
+        }
+        if (!problems.isEmpty()) {
+            System.out.println("[exclude] rejected — nothing changed. Fix these and retry:");
+            for (String p : problems) System.out.println("   " + p);
+            return;
+        }
+
+        List<String> kept = new ArrayList<>();
+        for (String t : current) if (!toRemove.contains(t)) kept.add(t);
+
+        Files.createDirectories(baseDir());
+        Path included = baseDir().resolve("tests.included").toAbsolutePath();
+        Files.write(included, String.join("\n", kept).getBytes(StandardCharsets.UTF_8));
+        cfg.put("tests", included.toString());
+
+        // Accumulate resolved exclusions in config (session-persistent, deduped).
+        Set<String> allExcluded = new LinkedHashSet<>();
+        String prev = cfg.get("exclude");
+        if (prev != null && !prev.isBlank())
+            for (String e : prev.split(",")) if (!e.isBlank()) allExcluded.add(e.trim());
+        allExcluded.addAll(toRemove);
+        cfg.put("exclude", String.join(",", allExcluded));
+
+        System.out.println("[exclude] removed " + toRemove.size() + ": "
+                + toRemove.stream().map(Repl::simple).collect(Collectors.joining(", ")));
+        System.out.println("[wired] tests -> " + included + "  (" + kept.size() + " classes remain)");
+    }
+
+    /** Resolve a typed name to test classes: exact FQN match if any, else simple-name match(es). */
+    private static List<String> matchTests(String token, List<String> tests) {
+        List<String> out = new ArrayList<>();
+        for (String t : tests) if (t.equals(token)) out.add(t);
+        if (!out.isEmpty()) return out;                  // an exact FQN match wins outright
+        for (String t : tests) if (simple(t).equals(token)) out.add(t);
+        return out;
+    }
+
+    /** Suggest up to 3 list entries whose simple name contains the token (case-insensitive). */
+    private static String nearMisses(String token, List<String> tests) {
+        String lc = token.toLowerCase();
+        List<String> hits = new ArrayList<>();
+        for (String t : tests) {
+            if (simple(t).toLowerCase().contains(lc)) {
+                hits.add(simple(t));
+                if (hits.size() == 3) break;
+            }
+        }
+        return String.join(", ", hits);
     }
 
     // ---- project autodetect ----------------------------------------------------------------------
@@ -357,6 +454,12 @@ public final class Repl {
         System.out.println("--- wired artifacts ---");
         for (String k : new String[]{"facts", "trace", "jfr-dir"}) {
             if (cfg.containsKey(k)) System.out.printf("  %-9s = %s%n", k, cfg.get(k));
+        }
+        String excluded = cfg.get("exclude");
+        if (excluded != null && !excluded.isBlank()) {
+            String[] ex = excluded.split(",");
+            System.out.printf("  %-9s = %d class(es): %s%n", "exclude", ex.length,
+                    Stream.of(ex).map(Repl::simple).collect(Collectors.joining(", ")));
         }
         System.out.println("  base out  = " + baseDir());
         reportRunnerStatus();
