@@ -1,6 +1,7 @@
 package com.csto2.cli;
 
 import com.csto2.Csto2;
+import com.csto2.surefire.SurefireTestFilter;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -341,15 +342,23 @@ public final class Repl {
         String fullCp = ensureJUnitLauncher(cp.toString(), dir, mvn);
         cfg.put("cp", fullCp);
 
-        // Candidate test list: every top-level .class under target/test-classes.
+        // Candidate test list: top-level .class files under target/test-classes that Surefire would
+        // select per the module pom's <includes>/<excludes> (or Surefire's defaults when it sets none),
+        // so the candidate set matches what 'mvn test' runs rather than every compiled helper class.
+        SurefireTestFilter filter = SurefireTestFilter.fromPom(dir.resolve("pom.xml"));
         List<String> names = new ArrayList<>();
+        int[] dropped = {0};
         try (Stream<Path> s = Files.walk(testClasses)) {
             s.filter(f -> f.toString().endsWith(".class"))
-             .map(f -> testClasses.relativize(f).toString())
+             .map(f -> testClasses.relativize(f).toString().replace(File.separatorChar, '/'))
              .filter(rel -> !rel.contains("$"))            // skip inner/anonymous classes
-             .map(rel -> rel.substring(0, rel.length() - ".class".length()).replace(File.separatorChar, '.'))
              .sorted()
-             .forEach(names::add);
+             .forEach(rel -> {
+                 if (filter.matches(rel))
+                     names.add(rel.substring(0, rel.length() - ".class".length()).replace('/', '.'));
+                 else
+                     dropped[0]++;
+             });
         }
         Path testsFile = baseDir().resolve("tests.all").toAbsolutePath();
         Files.write(testsFile, String.join("\n", names).getBytes(StandardCharsets.UTF_8));
@@ -358,7 +367,11 @@ public final class Repl {
 
         System.out.printf("[project] %s%n", dir.toAbsolutePath());
         System.out.printf("[project]   cp:    %d entries%n", fullCp.split(File.pathSeparator).length);
-        System.out.printf("[project]   tests: %d candidate classes -> %s%n", names.size(), testsFile);
+        System.out.printf("[project]   surefire selectors: %d include(s) (%s), %d exclude(s)%n",
+                filter.includeGlobs.size(), filter.usedDefaultIncludes ? "surefire defaults" : "pom",
+                filter.excludeGlobs.size());
+        System.out.printf("[project]   tests: %d candidate classes (%d dropped by surefire selectors) -> %s%n",
+                names.size(), dropped[0], testsFile);
         System.out.printf("[project]   workdir: %s%n", dir.toAbsolutePath());
         System.out.println("[project] next: run 'discover' to filter to runnable tests, then 'full pipeline'.");
     }
