@@ -40,12 +40,11 @@ public final class Csto2Listener implements TestExecutionListener {
     private static volatile String orderId = "order";
     private static volatile JfrProbe jfr;
 
-    /** Called from the agent premain before the launcher builds; starts JFR. */
+    /** Called from the agent premain before the launcher builds. */
     static void configure(String out, String order, String jfrDirArg) {
         outFile = out == null ? null : Paths.get(out);
         jfrDir = jfrDirArg == null ? null : Paths.get(jfrDirArg);
         if (order != null) orderId = order;
-        try { jfr = JfrProbe.start(); } catch (Throwable t) { jfr = null; }
     }
 
     private final ClassLoadingMXBean cl = ManagementFactory.getClassLoadingMXBean();
@@ -58,6 +57,13 @@ public final class Csto2Listener implements TestExecutionListener {
     private String curClass;
     private long loaded0, jit0, thr0, gcCount0, gcMs0, alloc0, t0;
     private JfrProbe.Window win;
+
+    @Override
+    public void testPlanExecutionStarted(TestPlan testPlan) {
+        if (jfr == null && jfrDir != null) {
+            try { jfr = JfrProbe.start(); } catch (Throwable t) { jfr = null; }
+        }
+    }
 
     @Override
     public void executionStarted(TestIdentifier id) {
