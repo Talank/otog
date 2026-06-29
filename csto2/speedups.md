@@ -3,7 +3,7 @@
 | apache/commons-csv | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | |
 | javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | used javaparser-core-testing; alloc-front and pkg-alloc-front are the same speedup |
 | apache/commons-text | naive | 18185ms | 15657ms | 13.9% | 13.9% | Second best was jit-front with 13.6%
-| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | 
+| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | Ran commons-math-legacy; Excluded 3 RNG-dependent tests (simplex optimizers) |
 
 # Logs
 
