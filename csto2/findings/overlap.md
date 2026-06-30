@@ -1,10 +1,10 @@
 # JIT vs. Alloc Overlap Analysis
 
-This report documents the correlation and overlap between the heaviest memory allocators (targeted by `alloc-front` / `alloc-sort`) and the heaviest JIT compilation tests (targeted by `jit-front` / `jit-sort`) across four target modules.
+This report documents the correlation and overlap between the heaviest memory allocators (targeted by `alloc-front` / `alloc-sort`) and the heaviest JIT compilation tests (targeted by `jit-front` / `jit-sort`) across five target modules.
 
 ## Overlap Findings (Top 10 Classes)
 
-Across all scanned modules, there is a consistent **70% to 90% overlap** between the top 10 allocators and the top 10 compilation-heavy test classes.
+Across all scanned modules, there is a consistent **70% to 90% overlap** between the top 10 allocators and the top 10 compilation-heavy test classes. This could indicate the ability to remove either jit methods or alloc methods as a candidate.
 
 ---
 
@@ -67,16 +67,22 @@ Across all scanned modules, there is a consistent **70% to 90% overlap** between
 
 ---
 
-## Physical Rationale
-
-The heavy overlap is driven by physical execution patterns inside the JVM:
-1.  **Code Path Scope**: Test suites that execute deep code paths (e.g., parsing large codebases, complex symbol resolution, or text formatting benchmarks) trigger massive class loading and JIT compiling overhead (`jitMs`).
-2.  **Allocation Overhead**: The same complex execution paths construct large numbers of short-lived objects (such as ASTs, type mappings, or string builders), resulting in very high allocation metrics (`allocBytes`).
-3.  **Optimization Consequence**: Because the top allocators are also the top JIT targets, front-loading them warms up JIT compilation and resolves class loading early for the entire suite, while also placing them on a clean, low-fragmentation heap.
+### 5. `jackson-core`
+*   **Total Tracked Tests**: 215
+*   **Overlap in Top 10**: **8 / 10 (80%)**
+*   **Shared Top 10 Classes**:
+    *   `DoubleToDecimalTest` (Alloc Rank #3, JIT Rank #1)
+    *   `NextXxxAccessTest` (Alloc Rank #8, JIT Rank #2)
+    *   `AsyncConcurrencyTest` (Alloc Rank #9, JIT Rank #4)
+    *   `GeneratorMiscTest` (Alloc Rank #7, JIT Rank #5)
+    *   `NumberOutputTest` (Alloc Rank #6, JIT Rank #6)
+    *   `FloatToDecimalTest` (Alloc Rank #2, JIT Rank #7)
+    *   `Fuzz51806JsonPointerParse818Test` (Alloc Rank #1, JIT Rank #9)
+    *   `StringGenerationFromReaderTest` (Alloc Rank #5, JIT Rank #10)
 
 ---
 
-## Comparison of pkg-alloc-front vs pkg-rt-front
+## Top allocators / runtime (rt) overlap
 
 The package-level candidate orders `pkg-alloc-front` and `pkg-rt-front` share an identical first 6 classes because the packages `com.github.javaparser.javadoc`, `com.github.javaparser.manual`, and `com.github.javaparser.issues` rank highest on both aggregate allocation and runtime metrics.
 
@@ -91,6 +97,22 @@ The package-level candidate orders `pkg-alloc-front` and `pkg-rt-front` share an
 | `com.github.javaparser.ast.visitor` | 165.66 MB (**#6**) | 482.50 ms (**#4**) |
 | `com.github.javaparser.printer.lexicalpreservation` | 200.84 MB (**#5**) | 261.50 ms (**#6**) |
 
-The sequences diverge at the 7th class due to ranking differences in subsequent packages:
-*   `pkg-alloc-front` positions `com.github.javaparser.utils` 4th and `com.github.javaparser.printer.lexicalpreservation` 5th.
-*   `pkg-rt-front` positions `com.github.javaparser.ast.visitor` 4th and `com.github.javaparser.utils` 5th.
+---
+
+## Case Study: Locality/Package Sensitivity vs. JIT/Alloc Performance
+
+The following tables compare the raw median runtimes (ms) and the relative speedups (%) of local perturbation (`-front`) vs. global sorting (`-sort`) strategies for both `javaparser-core-testing` and `jackson-core`, illustrating the impact of package-level locality sensitivity vs. global ordering.
+
+### Relative Speedup vs. Initial Baseline (%)
+
+| Candidate Strategy | Javaparser Speedup | Jackson Speedup |
+| :--- | :--- | :--- |
+| `initial` | 0.00% (Baseline) | 0.00% (Baseline) |
+| `alloc-front` (local) | **+20.19%** | +5.31% |
+| `alloc-sort` (global) | +17.80% | -1.88% |
+| `jit-front` (local) | +19.70% | +1.90% |
+| `jit-sort` (global) | +16.22% | **+5.81%** |
+
+# Conclusion
+
+This overlap was going to be used to justify removing either jit or alloc methods. This would make the analysis faster. However, the jackson-core vs. javaparser-core-testing case study disproves this (because alloc-sort is -1.88% while jit-sort is +5.81%). More research is needed.
