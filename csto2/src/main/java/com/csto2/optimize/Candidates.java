@@ -35,7 +35,7 @@ public final class Candidates {
     public static final List<String> ALL_NAMES = List.of(
             "initial", "naive", "alloc-front", "warm-tail", "alloc-front+warm-tail",
             "intra-warmup", "pkg-alloc-front", "pkg-rt-front", "pkg-alloc+observed-intra",
-            "alloc-sort", "jit-front", "jit-sort", "jit-sort+warm-tail", "pairwise-warm",
+            "alloc-sort", "jit-front", "jit-sort", "pairwise-warm",
             "jfr-gc-front", "jfr-warmup-front", "jfr-gc+warmup-front");
 
     /** Strategies that always run: the protected incumbent and the free baseline a real win must beat. */
@@ -150,7 +150,6 @@ public final class Candidates {
             return s == null ? 0 : -s.medJit;      // heaviest compiler first
         }));
         cands.put("jit-sort", jitSorted);
-        cands.put("jit-sort+warm-tail", move(jitSorted, cold, false));
 
         // NOTE: the producer->consumer "pairwise-warm" candidate is added by the caller (select),
         // because it must be CAUSALLY CONFIRMED with a 2-class probe before it can be trusted (see
