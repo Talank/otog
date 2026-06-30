@@ -101,9 +101,7 @@ public final class SurefireOrchestrator implements OrderRunner {
         if (agentJar != null) {
             agentFacts = outDir.resolve("agent").resolve(safe + ".facts.jsonl").toAbsolutePath();
             Files.createDirectories(agentFacts.getParent());
-            Path jfrOut = outDir.resolve("jfr").toAbsolutePath();
-            Files.createDirectories(jfrOut);
-            String inj = "-javaagent:" + agentJar + "=out=" + agentFacts + ",order=" + orderId + ",jfr=" + jfrOut;
+            String inj = "-javaagent:" + agentJar + "=out=" + agentFacts + ",order=" + orderId;
             argline = (argline == null || argline.isBlank()) ? inj : inj + " " + argline;
         }
 

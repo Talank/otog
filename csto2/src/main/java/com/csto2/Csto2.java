@@ -3,7 +3,6 @@ package com.csto2;
 import com.csto2.analyze.StaticComprehension;
 import com.csto2.analyze.StaticEdges;
 import com.csto2.optimize.Candidates;
-import com.csto2.optimize.JfrClassifier;
 import com.csto2.optimize.OrderOptimizer;
 import com.csto2.optimize.Pairwise;
 import com.csto2.trace.OrderRunner;
@@ -246,24 +245,6 @@ public final class Csto2 {
                 cands.put("pairwise-warm", Candidates.applyPairsMinimal(tests, confirmed));
         }
 
-        // JFR-driven candidates: classify tests by MECHANISM (full-GC carriers, shareable-warmup
-        // carriers) from per-test JFR facts aggregated across orders, and move those classes. Driven
-        // by the instrumented cause, not wall-clock. Enabled when a jfr facts dir is given/exists.
-        String jfrDirArg = a.get("jfr-dir");
-        Path jfrDir = jfrDirArg != null ? Paths.get(jfrDirArg) : tracePath.getParent().resolve("jfr");
-        if (Files.isDirectory(jfrDir)) {
-            double minLoads = Double.parseDouble(a.getOrDefault("jfr-min-loads", "200"));
-            double minShare = Double.parseDouble(a.getOrDefault("jfr-min-share", "0.3"));
-            Map<String, JfrClassifier.Facts> jf = JfrClassifier.analyze(jfrDir, minLoads, minShare);
-            System.err.print(JfrClassifier.report(jf));
-            long gcCarriers = jf.values().stream().filter(f -> "GC_CARRIER".equals(f.category)).count();
-            long warmCarriers = jf.values().stream().filter(f -> "WARMUP_SHAREABLE".equals(f.category)).count();
-            if (gcCarriers > 0) cands.put("jfr-gc-front", JfrClassifier.gcFront(tests, jf));
-            if (warmCarriers > 0) cands.put("jfr-warmup-front", JfrClassifier.warmupFront(tests, jf));
-            if (gcCarriers > 0 && warmCarriers > 0) cands.put("jfr-gc+warmup-front", JfrClassifier.gcAndWarmupFront(tests, jf));
-        } else {
-            System.err.println("[csto2] no JFR facts dir at " + jfrDir + " (run trace with --jfr to enable mechanism-driven candidates)");
-        }
 
         // Drop any disabled strategy that was generated above so it is never measured (the costly part).
         for (String s : skip)

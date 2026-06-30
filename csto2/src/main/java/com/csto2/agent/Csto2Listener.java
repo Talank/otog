@@ -1,6 +1,5 @@
 package com.csto2.agent;
 
-import com.csto2.trace.JfrProbe;
 import com.csto2.util.Json;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.TestSource;
@@ -36,14 +35,11 @@ import java.util.Map;
 public final class Csto2Listener implements TestExecutionListener {
 
     private static volatile Path outFile;
-    private static volatile Path jfrDir;
     private static volatile String orderId = "order";
-    private static volatile JfrProbe jfr;
 
     /** Called from the agent premain before the launcher builds. */
-    static void configure(String out, String order, String jfrDirArg) {
+    static void configure(String out, String order) {
         outFile = out == null ? null : Paths.get(out);
-        jfrDir = jfrDirArg == null ? null : Paths.get(jfrDirArg);
         if (order != null) orderId = order;
     }
 
@@ -56,14 +52,6 @@ public final class Csto2Listener implements TestExecutionListener {
     private int depth = 0, pos = 0, curPos = 0;
     private String curClass;
     private long loaded0, jit0, thr0, gcCount0, gcMs0, alloc0, t0;
-    private JfrProbe.Window win;
-
-    @Override
-    public void testPlanExecutionStarted(TestPlan testPlan) {
-        if (jfr == null && jfrDir != null) {
-            try { jfr = JfrProbe.start(); } catch (Throwable t) { jfr = null; }
-        }
-    }
 
     @Override
     public void executionStarted(TestIdentifier id) {
@@ -71,7 +59,7 @@ public final class Csto2Listener implements TestExecutionListener {
         if (depth++ == 0) {
             curClass = className(id);
             curPos = pos++;
-            win = jfr != null ? jfr.begin(curClass, curPos) : null;
+
             loaded0 = cl.getTotalLoadedClassCount();
             jit0 = comp == null ? 0 : comp.getTotalCompilationTime();
             long[] g = gcSnapshot();
@@ -87,7 +75,7 @@ public final class Csto2Listener implements TestExecutionListener {
     public void executionFinished(TestIdentifier id, TestExecutionResult result) {
         if (!isClass(id)) return;
         if (--depth == 0 && curClass != null) {
-            if (win != null && jfr != null) jfr.end(win);
+
             long[] g = gcSnapshot();
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("test", curClass);
@@ -101,7 +89,7 @@ public final class Csto2Listener implements TestExecutionListener {
             row.put("threadDelta", threads.getThreadCount() - thr0);
             rows.add(row);
             curClass = null;
-            win = null;
+
         }
     }
 
@@ -114,10 +102,7 @@ public final class Csto2Listener implements TestExecutionListener {
                 for (Map<String, Object> r : rows) sb.append(Json.write(r)).append('\n');
                 Files.write(outFile, sb.toString().getBytes(StandardCharsets.UTF_8));
             }
-            if (jfr != null && jfrDir != null) {
-                String safe = orderId.replace('#', '_').replace('/', '_');
-                jfr.finishAndWrite(jfrDir.resolve(safe + ".jfr"), jfrDir.resolve(safe + ".jfr.jsonl"), orderId);
-            }
+
         } catch (Throwable t) {
             System.err.println("[csto2-agent] failed to write facts: " + t);
         }

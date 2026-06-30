@@ -28,15 +28,14 @@ public final class Candidates {
 
     /**
      * Every candidate-strategy name {@code select} can produce, in generation order — the catalog the
-     * wizard offers for enable/disable. The {@code jfr-*} and {@code pairwise-warm} entries are only
+     * wizard offers for enable/disable. The {@code pairwise-warm} entries are only
      * generated when their preconditions hold, but they are still listed so they can be disabled
      * pre-emptively. {@link #PROTECTED_NAMES} can never be disabled.
      */
     public static final List<String> ALL_NAMES = List.of(
             "initial", "naive", "alloc-front", "warm-tail", "alloc-front+warm-tail",
             "intra-warmup", "pkg-alloc-front", "pkg-rt-front", "pkg-alloc+observed-intra",
-            "alloc-sort", "jit-front", "jit-sort", "pairwise-warm",
-            "jfr-gc-front", "jfr-warmup-front", "jfr-gc+warmup-front");
+            "alloc-sort", "jit-front", "jit-sort", "pairwise-warm");
 
     /** Strategies that always run: the protected incumbent and the free baseline a real win must beat. */
     public static final java.util.Set<String> PROTECTED_NAMES = java.util.Set.of("initial", "naive");

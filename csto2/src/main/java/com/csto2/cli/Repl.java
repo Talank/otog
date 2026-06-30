@@ -169,14 +169,13 @@ public final class Repl {
             throw new IllegalStateException("trace produced no rows (see " + outDir.resolve("logs") + ")");
         }
         cfg.put("trace", traceJsonl.toString());
-        cfg.put("jfr-dir", outDir.resolve("jfr").toString());
-        System.out.println("[wired] trace -> " + cfg.get("trace") + "  jfr-dir -> " + cfg.get("jfr-dir"));
+        System.out.println("[wired] trace -> " + cfg.get("trace"));
         warnNonGreen(traceJsonl);
     }
 
     private void select() throws Exception {
         require("cp"); require("tests"); requireFile("trace");
-        Map<String, String> a = args("cp", "trace", "jfr-dir", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "skip-candidates", "heavy-alloc-mb", "heavy-jit-ms");
+        Map<String, String> a = args("cp", "trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "skip-candidates", "heavy-alloc-mb", "heavy-jit-ms");
         a.put("tests", cfg.get("tests"));
         a.put("out", baseDir().resolve("select").toString());
         Csto2.dispatch("select", a);
@@ -523,7 +522,7 @@ public final class Repl {
             if (v != null) System.out.printf("  %-9s = %s%n", k[0], v);
         }
         System.out.println("--- wired artifacts ---");
-        for (String k : new String[]{"facts", "trace", "jfr-dir"}) {
+        for (String k : new String[]{"facts", "trace"}) {
             if (cfg.containsKey(k)) System.out.printf("  %-9s = %s%n", k, cfg.get(k));
         }
         String excluded = cfg.get("exclude");

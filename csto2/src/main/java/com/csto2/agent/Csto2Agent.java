@@ -12,7 +12,7 @@ import java.util.jar.JarFile;
  * records per-class MXBean/JFR facts inside the real Surefire run — recovering everything the legacy
  * in-JVM TraceRunner measured, but in the faithful Surefire environment.
  *
- * <p>Agent args: {@code out=<facts.jsonl>,order=<orderId>,jfr=<jfrDir>} (comma-separated).
+ * <p>Agent args: {@code out=<facts.jsonl>,order=<orderId>} (comma-separated).
  */
 public final class Csto2Agent {
 
@@ -33,7 +33,7 @@ public final class Csto2Agent {
         } catch (Throwable t) {
             System.err.println("[csto2-agent] could not append agent jar to system classpath: " + t);
         }
-        Csto2Listener.configure(opts.get("out"), opts.get("order"), opts.get("jfr"));
+        Csto2Listener.configure(opts.get("out"), opts.get("order"));
         System.err.println("[csto2-agent] active (order=" + opts.get("order") + ")");
     }
 
