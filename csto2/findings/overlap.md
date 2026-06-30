@@ -1,6 +1,6 @@
-# JIT-Front vs. Alloc-Front Overlap Analysis
+# JIT vs. Alloc Overlap Analysis
 
-This report documents the correlation and overlap between the heaviest memory allocators (targeted by `alloc-front`) and the heaviest JIT compilation tests (targeted by `jit-front`) across four target modules.
+This report documents the correlation and overlap between the heaviest memory allocators (targeted by `alloc-front` / `alloc-sort`) and the heaviest JIT compilation tests (targeted by `jit-front` / `jit-sort`) across four target modules.
 
 ## Overlap Findings (Top 10 Classes)
 

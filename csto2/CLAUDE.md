@@ -163,7 +163,7 @@ mechanism. The full set:
   fastest traced order.
 - `alloc-sort` — full global sort by allocation descending. Gains on alloc-bound suites, breaks
   locality-bound ones — safe only because the green gate filters it.
-- `jit-front` — full global sort by per-test compilation time (`jitMs`) descending. The lever for
+- `jit-sort` — full global sort by per-test compilation time (`jitMs`) descending. The lever for
   **JIT-bound** suites (e.g. jackson-core, where ~8.5s of a 12s run is compilation).
 
 **Added by `select` itself:**
@@ -241,7 +241,7 @@ costs an extra candidate measurement, never a regression.)
 - **Honor the target's Surefire excludes** when discovering tests — globbing `*Test` can pick up an
   excluded slow perf test and fake an order effect. Reconcile the measured suite against `mvn test`.
 - **Diagnose the dominant cost first** (GC vs JIT vs compute) before choosing a lever — the surface
-  signal lies (jackson looked alloc-heavy but was JIT-bound; `jit-front` won there).
+  signal lies (jackson looked alloc-heavy but was JIT-bound; `jit-sort` won there).
 - A new ordering mechanism **must be re-tested on other targets** before trusting it — helping one
   suite is often overfitting. When a new mechanism proves out, fold it back in as another candidate
   strategy in `Candidates`/`JfrClassifier` rather than wiring it as "the" optimizer.
