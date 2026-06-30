@@ -107,8 +107,9 @@ public final class TestDiscovery {
 
     private static boolean isTestAnno(String name) {
         if (TEST_ANNOS.contains(name)) return true;
-        // Meta-annotated / custom @TestTemplate-based markers and RunWith/Testable.
-        return name.endsWith("RunWith") || name.endsWith(".Testable")
+        if (name.endsWith("BeforeTest") || name.endsWith("AfterTest")) return false;
+        // Meta-annotated / custom @TestTemplate-based markers, custom rerun annotations (like RepeatedIfExceptionsTest), and RunWith/Testable.
+        return name.endsWith("Test") || name.endsWith("RunWith") || name.endsWith(".Testable")
                 || name.endsWith(".ParameterizedTest") || name.endsWith(".RepeatedTest");
     }
 
