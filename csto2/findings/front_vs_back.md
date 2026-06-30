@@ -19,28 +19,7 @@
 | `BulkParseTest` | 1074.00 | 1532.00 | +458.00 | +42.64% |
 | `Issue2627Test` | 351.00 | 880.00 | +529.00 | +150.71% |
 
----
 
-## Comparison of pkg-alloc-front vs pkg-rt-front
-
-The package-level candidate orders `pkg-alloc-front` and `pkg-rt-front` share an identical first 6 classes because the packages `com.github.javaparser.javadoc`, `com.github.javaparser.manual`, and `com.github.javaparser.issues` rank highest on both aggregate allocation and runtime metrics.
-
-### Package-Level Metrics
-
-| Package | Agg. Alloc (Rank) | Agg. Runtime (Rank) |
-|---|---|---|
-| `com.github.javaparser.javadoc` | 7432.73 MB (**#1**) | 5361.00 ms (**#1**) |
-| `com.github.javaparser.manual` | 3714.27 MB (**#2**) | 1968.00 ms (**#2**) |
-| `com.github.javaparser.issues` | 1820.01 MB (**#3**) | 1018.50 ms (**#3**) |
-| `com.github.javaparser.utils` | 203.44 MB (**#4**) | 323.50 ms (**#5**) |
-| `com.github.javaparser.ast.visitor` | 165.66 MB (**#6**) | 482.50 ms (**#4**) |
-| `com.github.javaparser.printer.lexicalpreservation` | 200.84 MB (**#5**) | 261.50 ms (**#6**) |
-
-The sequences diverge at the 7th class due to ranking differences in subsequent packages:
-*   `pkg-alloc-front` positions `com.github.javaparser.utils` 4th and `com.github.javaparser.printer.lexicalpreservation` 5th.
-*   `pkg-rt-front` positions `com.github.javaparser.ast.visitor` 4th and `com.github.javaparser.utils` 5th.
-
----
 
 ## Measurement Procedure
 
