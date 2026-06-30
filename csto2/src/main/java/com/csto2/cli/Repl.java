@@ -57,6 +57,8 @@ public final class Repl {
         {"repeats", "measurement rounds for select/validate/pairwise (lower = faster, noisier; select default 4)"},
         {"surefire-ext", "testorder-fork extension jar (optional; auto-located from ~/.m2 when blank)"},
         {"mvn", "mvn binary/wrapper for the Surefire runner (optional; default ./mvnw or mvn)"},
+        {"heavy-alloc-mb", "threshold in MB for heavy allocators (default 500)"},
+        {"heavy-jit-ms", "threshold in ms for heavy JIT compiling tests (default 100)"},
     };
 
     public void run() throws Exception {
@@ -174,7 +176,7 @@ public final class Repl {
 
     private void select() throws Exception {
         require("cp"); require("tests"); requireFile("trace");
-        Map<String, String> a = args("cp", "trace", "jfr-dir", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "skip-candidates");
+        Map<String, String> a = args("cp", "trace", "jfr-dir", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "skip-candidates", "heavy-alloc-mb", "heavy-jit-ms");
         a.put("tests", cfg.get("tests"));
         a.put("out", baseDir().resolve("select").toString());
         Csto2.dispatch("select", a);

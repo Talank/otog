@@ -35,7 +35,7 @@ public final class Candidates {
     public static final List<String> ALL_NAMES = List.of(
             "initial", "naive", "alloc-front", "warm-tail", "alloc-front+warm-tail",
             "intra-warmup", "pkg-alloc-front", "pkg-rt-front", "pkg-alloc+observed-intra",
-            "alloc-sort", "jit-front", "jit-front+warm-tail", "pairwise-warm",
+            "alloc-sort", "jit-front", "jit-sort", "jit-sort+warm-tail", "pairwise-warm",
             "jfr-gc-front", "jfr-warmup-front", "jfr-gc+warmup-front");
 
     /** Strategies that always run: the protected incumbent and the free baseline a real win must beat. */
@@ -80,7 +80,7 @@ public final class Candidates {
 
     /** Build the named candidate orders. */
     public static Map<String, List<String>> generate(List<String> initial, Map<String, Stat> stats, Path tracePath,
-                                                     double heavyAllocMB, double coldSlope, double maxResid) throws Exception {
+                                                     double heavyAllocMB, double heavyJitMs, double coldSlope, double maxResid) throws Exception {
         Map<String, List<String>> cands = new LinkedHashMap<>();
         cands.put("initial", new ArrayList<>(initial));      // as-given/default order
         cands.put("naive", fastestObserved(tracePath, initial)); // fastest of the trivially-observed orders
@@ -90,6 +90,12 @@ public final class Candidates {
         for (String t : initial) { Stat s = stats.get(t); if (s != null && s.allocMB >= heavyAllocMB) heavy.add(t); }
         heavy.sort(Comparator.comparingDouble((String t) -> -stats.get(t).allocMB));
         cands.put("alloc-front", move(initial, heavy, true));
+
+        // heavy compilers, descending; everything else keeps initial order
+        List<String> heavyJit = new ArrayList<>();
+        for (String t : initial) { Stat s = stats.get(t); if (s != null && s.medJit >= heavyJitMs) heavyJit.add(t); }
+        heavyJit.sort(Comparator.comparingDouble((String t) -> -stats.get(t).medJit));
+        cands.put("jit-front", move(initial, heavyJit, true));
 
         // confident cold-sensitive classes (steep negative slope, low residual), not heavy
         List<String> cold = new ArrayList<>();
@@ -132,7 +138,7 @@ public final class Candidates {
         }));
         cands.put("alloc-sort", allocSorted);
 
-        // Global JIT-warmup front: sort by per-test compilation time (jitMs) descending. For JIT-BOUND
+        // Global JIT-warmup sort: sort by per-test compilation time (jitMs) descending. For JIT-BOUND
         // suites (where compilation, not GC or compute, dominates -- e.g. jackson-core: ~8.5s of a 12s
         // run is JIT), front-loading the compilation-heaviest tests warms the JIT once so everyone after
         // runs hot, cutting total compilation. Measured jackson-core +3.3% vs naive / +10% vs initial
@@ -143,8 +149,8 @@ public final class Candidates {
             Stat s = stats.get(t);
             return s == null ? 0 : -s.medJit;      // heaviest compiler first
         }));
-        cands.put("jit-front", jitSorted);
-        cands.put("jit-front+warm-tail", move(jitSorted, cold, false));
+        cands.put("jit-sort", jitSorted);
+        cands.put("jit-sort+warm-tail", move(jitSorted, cold, false));
 
         // NOTE: the producer->consumer "pairwise-warm" candidate is added by the caller (select),
         // because it must be CAUSALLY CONFIRMED with a 2-class probe before it can be trusted (see
