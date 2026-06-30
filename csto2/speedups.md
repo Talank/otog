@@ -1,10 +1,11 @@
 | Project | Fastest Strategy | Initial Median Time | Naïve Median Time | Speedup Vs. Initial | Naïve Speedup Vs. Initial | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | apache/commons-csv | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | |
-| javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | used `javaparser-core-testing`; alloc-front and pkg-alloc-front are the same speedup |
+| javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | module: `javaparser-core-testing`; alloc-front and pkg-alloc-front are the same speedup |
 | apache/commons-text | naive | 18185ms | 15657ms | 13.9% | 13.9% | Second best was jit-front with 13.6%
 | apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | Ran `commons-math-legacy`; Excluded 3 RNG-dependent tests (simplex optimizers) |
 | alibaba/fastjson2 | pkg-alloc-front | 22462ms | 23171ms | 1.1% | -3.2% | Ran `core`; did not run with all approaches |
+| javaparser/javaparser | alloc-sort | 22028ms | 22092ms | 11.1% | -0.3% | module: `symbol-solver-testing`; more measurement runs; alloc-front+warm-tail was close second |
 
 # Logs
 
@@ -38,7 +39,7 @@
 => SHIP: alloc-front+warm-tail  (10170ms, 16.8% faster than initial) [green]
 ```
 
-## javaparser
+## javaparser (core)
 
 ```
 === CANDIDATE MEASUREMENTS ===
@@ -151,4 +152,36 @@
   naive                  -3.2% vs initial
 
 => SHIP: pkg-alloc-front  (22225ms, 1.1% faster than initial) [green]
+```
+
+## javaparser (symbol-solver-testing)
+
+```
+=== CANDIDATE MEASUREMENTS ===
+  alloc-front            runs=8 median=20223ms min=18357ms max=21403ms  GREEN
+  jit-front              runs=8 median=20091ms min=18682ms max=21415ms  GREEN
+  jfr-warmup-front       runs=8 median=21261ms min=18638ms max=22825ms  GREEN
+  initial                runs=8 median=22028ms min=19649ms max=24125ms  GREEN
+  pkg-alloc+observed-intra runs=8 median=21409ms min=19064ms max=22399ms  GREEN
+  alloc-front+warm-tail  runs=8 median=19869ms min=18205ms max=21675ms  GREEN
+  alloc-sort             runs=8 median=19593ms min=18516ms max=21517ms  GREEN
+  warm-tail              runs=8 median=20768ms min=18838ms max=22793ms  GREEN
+  pkg-alloc-front        runs=8 median=21095ms min=18840ms max=22593ms  GREEN
+  pkg-rt-front           runs=8 median=20873ms min=18911ms max=22837ms  GREEN
+  intra-warmup           runs=8 median=22215ms min=19647ms max=23461ms  GREEN
+  naive                  runs=8 median=22092ms min=19703ms max=24353ms  GREEN
+
+  alloc-front            +8.2% vs initial
+  jit-front              +8.8% vs initial
+  jfr-warmup-front       +3.5% vs initial
+  pkg-alloc+observed-intra +2.8% vs initial
+  alloc-front+warm-tail  +9.8% vs initial
+  alloc-sort             +11.1% vs initial
+  warm-tail              +5.7% vs initial
+  pkg-alloc-front        +4.2% vs initial
+  pkg-rt-front           +5.2% vs initial
+  intra-warmup           -0.8% vs initial
+  naive                  -0.3% vs initial
+
+=> SHIP: alloc-sort  (19593ms, 11.1% faster than initial) [green]
 ```
