@@ -101,6 +101,8 @@ public final class Csto2 {
         Path workDir = resolveWorkDir(a, cp);
         Path moduleDir = workDir != null ? workDir : Paths.get("").toAbsolutePath();
         SurefireOrchestrator s = new SurefireOrchestrator(moduleDir, outDir, ext, surefireMvnBin(a, moduleDir));
+        Path jHome = resolveJavaHome(a);
+        if (jHome != null) s.setJavaHome(jHome);
         if (a.containsKey("kp-argline")) s.setKpArgline(a.get("kp-argline"));
         if (!attachAgent) {
             System.err.println("[csto2] measurement runner: no agent (clean wall-clock for A/B validation)");
@@ -511,6 +513,17 @@ public final class Csto2 {
         Path p = Paths.get(home);
         if (p.getFileName().toString().equals("java")) return p.toString();      // full path to java
         return p.resolve("bin").resolve("java").toString();                       // JAVA_HOME given
+    }
+
+    private static Path resolveJavaHome(Map<String, String> a) {
+        String home = a.get("java");
+        if (home == null || home.isBlank()) return null;
+        Path p = Paths.get(home);
+        if (p.getFileName().toString().equals("java")) {
+            Path bin = p.getParent();
+            return bin != null ? bin.getParent() : null;
+        }
+        return p;
     }
 
     /** Extra JVM args for child test JVMs (e.g. --add-opens to match the project's Surefire config). */
