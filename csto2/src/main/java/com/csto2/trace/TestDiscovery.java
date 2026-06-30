@@ -45,7 +45,7 @@ public final class TestDiscovery {
             Class<?> c;
             try { c = Class.forName(name, false, TestDiscovery.class.getClassLoader()); }
             catch (Throwable t) { loadSkip++; continue; }
-            if (java.lang.reflect.Modifier.isAbstract(c.getModifiers()) || c.isInterface()) { abstractSkip++; continue; }
+            if (java.lang.reflect.Modifier.isAbstract(c.getModifiers()) && !c.isInterface()) { abstractSkip++; continue; }
             if (!hasTests(c)) { noTestSkip++; continue; }
             kept.add(name);
         }
@@ -124,6 +124,9 @@ public final class TestDiscovery {
             for (Method m : c.getDeclaredMethods())
                 for (java.lang.annotation.Annotation an : m.getAnnotations())
                     if (isTestAnno(an.annotationType().getName())) return true;
+            for (Class<?> nc : c.getDeclaredClasses()) {
+                if (hasTests(nc)) return true;
+            }
         } catch (Throwable ignored) {}
         return false;
     }
