@@ -43,6 +43,7 @@ public final class SurefireOrchestrator implements OrderRunner {
     private final String mvnBin;
     private String kpArgline;       // prepended to the fork argLine (e.g. -javaagent + JFR); null = none
     private Path agentJar;          // csto2 instrumentation agent; null = Tier-1 (runtime+status only)
+    private Path javaHome;          // JAVA_HOME for the Maven runner child process
     private final List<String> extraProps = new ArrayList<>();
 
     public SurefireOrchestrator(Path moduleDir, Path outDir, Path extJar, String mvnBin) {
@@ -55,6 +56,7 @@ public final class SurefireOrchestrator implements OrderRunner {
     public void setKpArgline(String argline) { this.kpArgline = argline; }
     /** Enable per-class instrumentation (alloc/jit/gc/JFR) by injecting this agent into the fork. */
     public void setAgent(Path agentJar) { this.agentJar = agentJar == null ? null : agentJar.toAbsolutePath(); }
+    public void setJavaHome(Path javaHome) { this.javaHome = javaHome == null ? null : javaHome.toAbsolutePath(); }
     /** Extra -Dkey=value props passed to every mvn invocation. */
     public void addProp(String kv) { extraProps.add(kv); }
 
@@ -106,6 +108,7 @@ public final class SurefireOrchestrator implements OrderRunner {
 
         ProcessBuilder pb = new ProcessBuilder(cmd).directory(moduleDir.toFile());
         if (argline != null && !argline.isBlank()) pb.environment().put("KP_ARGLINE", argline);
+        if (javaHome != null) pb.environment().put("JAVA_HOME", javaHome.toString());
         Path logDir = outDir.resolve("logs");
         Files.createDirectories(logDir);
         pb.redirectErrorStream(true);
