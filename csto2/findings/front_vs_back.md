@@ -1,0 +1,53 @@
+# Javaparser Core Testing Order Experiment Results
+
+## Front vs Back Allocation Experiment (3 Repeats)
+
+### Overall Suite Runtime (Sum of Test Classes)
+
+| Metric | Front Order (ms) | Back Order (ms) | Change (Back vs Front) |
+|---|---|---|---|
+| Run 1 | 10294.00 | 12867.00 | +2573.00 ms (+25.00%) |
+| Run 2 | 10092.00 | 13147.00 | +3055.00 ms (+30.27%) |
+| Run 3 | 10006.00 | 12512.00 | +2506.00 ms (+25.04%) |
+| **Median** | **10092.00** | **12867.00** | **+2775.00 ms (+27.50%)** |
+
+### Specific Runtimes for Top 3 Allocators (Median across 3 Runs)
+
+| Test Class | Front Position (ms) | Back Position (ms) | Change (ms) | Change (%) |
+|---|---|---|---|---|
+| `JavadocExtractorTest` | 3823.00 | 6025.00 | +2202.00 | +57.60% |
+| `BulkParseTest` | 1074.00 | 1532.00 | +458.00 | +42.64% |
+| `Issue2627Test` | 351.00 | 880.00 | +529.00 | +150.71% |
+
+---
+
+## Comparison of pkg-alloc-front vs pkg-rt-front
+
+The package-level candidate orders `pkg-alloc-front` and `pkg-rt-front` share an identical first 6 classes because the packages `com.github.javaparser.javadoc`, `com.github.javaparser.manual`, and `com.github.javaparser.issues` rank highest on both aggregate allocation and runtime metrics.
+
+### Package-Level Metrics
+
+| Package | Agg. Alloc (Rank) | Agg. Runtime (Rank) |
+|---|---|---|
+| `com.github.javaparser.javadoc` | 7432.73 MB (**#1**) | 5361.00 ms (**#1**) |
+| `com.github.javaparser.manual` | 3714.27 MB (**#2**) | 1968.00 ms (**#2**) |
+| `com.github.javaparser.issues` | 1820.01 MB (**#3**) | 1018.50 ms (**#3**) |
+| `com.github.javaparser.utils` | 203.44 MB (**#4**) | 323.50 ms (**#5**) |
+| `com.github.javaparser.ast.visitor` | 165.66 MB (**#6**) | 482.50 ms (**#4**) |
+| `com.github.javaparser.printer.lexicalpreservation` | 200.84 MB (**#5**) | 261.50 ms (**#6**) |
+
+The sequences diverge at the 7th class due to ranking differences in subsequent packages:
+*   `pkg-alloc-front` positions `com.github.javaparser.utils` 4th and `com.github.javaparser.printer.lexicalpreservation` 5th.
+*   `pkg-rt-front` positions `com.github.javaparser.ast.visitor` 4th and `com.github.javaparser.utils` 5th.
+
+---
+
+## Measurement Procedure
+
+1. Test execution was managed using Maven Surefire runs on the `javaparser-core-testing` module with a custom core classpath extension (`fun.jvm.surefire.flaky:surefire-changing-maven-extension:1.0-SNAPSHOT`) loaded to support the `-Dsurefire.runOrder=testorder` flag.
+2. Two order files (`top3-front.order` and `top3-back.order`) representing the target sequences were dynamically passed via the `-Dtest` property to run against a base population of 230 test classes.
+3. Surefire was configured with `forkCount=1` and `reuseForks=true` to run all classes in a single JVM lifecycle, preserving cross-class warmup, class-loading, and GC memory carryover state.
+4. No instrumentation agent or Java Flight Recorder tracing was attached to ensure timing measurements reflect clean wall-clock execution without profiling overhead.
+5. The experiment executed 3 interleaved A/B iterations to minimize background environmental interference such as file caching or thermal throttling.
+6. Previous report XML files under `target/surefire-reports` were deleted before each run, and the class runtimes were extracted from the newly generated XML reports.
+
