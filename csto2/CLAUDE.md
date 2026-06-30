@@ -110,8 +110,8 @@ The two backends share the `OrderRunner` interface (`runOrder` / `run`).
 
 ## Pipeline (the `Csto2` subcommands)
 
-Each is a method behind the `switch` in `Csto2.main`. The measuring commands (trace/select/validate/
-pairwise) build their runner via `makeRunner`, which is **Surefire-only** and needs the testorder fork
+Each is a method behind the `switch` in `Csto2.main`. The measuring commands (trace/select/validate)
+build their runner via `makeRunner`, which is **Surefire-only** and needs the testorder fork
 (`--surefire-ext`, else auto-located in `~/.m2`) + the agent (auto-located beside `csto2.jar`, or
 `--agent`). Common flags: `--cp` (target classpath; used to infer the module dir), `--tests <file>`,
 `--out <dir>`, `--workdir <module dir>`, `--mvn <bin>`.
@@ -134,10 +134,6 @@ without losing anything.
    (`OrderOptimizer`), emits `initial` vs `optimized` (slope-sorted) orders, and measures them
    **interleaved per repeat** (spreads background noise evenly), then reports median speedup.
 5. **`select --cp --tests --trace [--jfr-dir] [thresholds…]`** — the **main ship gate** (see below).
-6. **`pairwise --cp --trace --facts <static-facts.jsonl> [--repeats=5] [--consumers=12]`** — dynamic
-   producer→consumer warm-pair discovery on the stable-passing subset; compares `initial` / `slope` /
-   `pairwise` orders. Uses static `staticReads` only to *narrow* candidate producers, then confirms
-   each pair by direct measurement.
 
 ## Candidate-generation strategies (there is NO single optimizer)
 
@@ -153,25 +149,15 @@ mechanism. The full set:
 - `warm-tail` — high-confidence cold-sensitive classes (steep negative position-slope ≤ `--cold-slope`,
   low residual ≤ `--max-resid`, not heavy) moved to the tail.
 - `alloc-front+warm-tail` — both of the above.
-- `intra-warmup` — keeps package blocks **atomic and in original order** (preserves cross-package JIT
-  locality) but inside each package runs the coldest-first (by intercept = est. cost at position 0).
-  The lever for suites whose natural order is already locality-optimal (e.g. javaparser).
 - `pkg-alloc-front` / `pkg-rt-front` — sort whole **package blocks** by aggregate alloc / runtime,
   preserving original order *within* each block. Middle ground between local perturbation and a
   destructive global sort.
-- `pkg-alloc+observed-intra` — package blocks sorted by alloc, but intra-package order taken from the
-  fastest traced order.
 - `alloc-sort` — full global sort by allocation descending. Gains on alloc-bound suites, breaks
   locality-bound ones — safe only because the green gate filters it.
 - `jit-sort` — full global sort by per-test compilation time (`jitMs`) descending. The lever for
   **JIT-bound** suites (e.g. jackson-core, where ~8.5s of a 12s run is compilation).
 
 **Added by `select` itself:**
-- `pairwise-warm` — producer→consumer cache-warming pairs, **mined** from the trace
-  (`detectPairs`: a true warmer makes the consumer shed allocation when it precedes it) then
-  **causally confirmed** (`confirmPairs`: run `[P,C]` vs `[C,P]` in isolated fresh JVMs; keep only if
-  the consumer really sheds allocation). Applied as a minimal perturbation of initial. Trace
-  co-occurrence alone confounds correlated predecessors, so the probe is mandatory.
 - `jfr-gc-front` / `jfr-warmup-front` / `jfr-gc+warmup-front` (`optimize/JfrClassifier`) — only when
   a JFR facts dir exists. Classifies tests by **mechanism** from aggregated JFR facts:
   `GC_CARRIER` (does real old/full GCs → wants a fresh low-occupancy heap → run early),
@@ -179,11 +165,10 @@ mechanism. The full set:
   proving the classes are shared → warming them early helps everyone), vs `FIXED_WARMUP`/`INERT`
   (exclusive or negligible → leave in place). Fronts the carriers accordingly.
 
-**The slope model (`optimize/OrderOptimizer`)** is used by `validate` and `pairwise` (not `select`):
+**The slope model (`optimize/OrderOptimizer`)** is used by `validate` (not `select`):
 it fits per-class `runtime(pos) = intercept + slope·pos` (ridge-regularized, `RIDGE=50`) and sorts by
 **slope descending**. By the rearrangement inequality this single rule both front-loads
-positive-slope allocators and tail-loads negative-slope warmup classes. `Pairwise` then layers
-dynamically-probed producer-before-consumer constraints on top of the slope order.
+positive-slope allocators and tail-loads negative-slope warmup classes.
 
 ### The selection/green gate (`select` → `selectReport`)
 
@@ -208,9 +193,8 @@ and **greenness** (any non-PASS status across runs disqualifies it). Ship rule: 
 - `static-edges.json` (`StaticEdges`): `pollutionEdges, sharedResourceEdges, localityEdges, counts`.
 
 JSON I/O is hand-rolled and deliberately minimal: `util/Json` writes; `optimize/MiniJson` parses a
-single **flat** object (it *skips* nested arrays/objects, returning null) — array fields like
-`staticReads` are re-extracted by substring scanning (`Pairwise.extractArray`). Keep emitted rows flat
-and parseable by these.
+single **flat** object (it *skips* nested arrays/objects, returning null) — any consumer that needs an
+array field must re-extract it by substring scanning. Keep emitted rows flat and parseable by these.
 
 ## Invocation flags
 

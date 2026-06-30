@@ -4,7 +4,6 @@ import com.csto2.analyze.StaticComprehension;
 import com.csto2.analyze.StaticEdges;
 import com.csto2.optimize.Candidates;
 import com.csto2.optimize.OrderOptimizer;
-import com.csto2.optimize.Pairwise;
 import com.csto2.trace.OrderRunner;
 import com.csto2.surefire.SurefireOrchestrator;
 
@@ -41,7 +40,6 @@ public final class Csto2 {
             case "discover" -> discover(a);
             case "trace" -> trace(a);
             case "validate" -> validate(a);
-            case "pairwise" -> pairwise(a);
             case "select" -> select(a);
             default -> usage();
         }
@@ -80,13 +78,12 @@ public final class Csto2 {
     /**
      * Build the Surefire-backed runner.
      *
-     * <p>{@code attachAgent} controls the per-class instrumentation agent. The agent (JFR +
-     * alloc/jit/gc deltas) is the engine of <b>discovery</b> — tracing, JFR mechanism classification,
-     * and producer→consumer pair confirmation all need it. But the agent's JFR recording and listener
-     * add real overhead that perturbs the very wall-clock we optimize, so the final A/B
-     * <b>validation</b> of promising orders (the {@code select} ship gate, {@code validate}) runs with
-     * {@code attachAgent=false} for clean timing — those phases only read runtime+status, never agent
-     * facts.
+     * <p>{@code attachAgent} controls the per-class instrumentation agent. The agent (alloc/jit/gc
+     * deltas) is the engine of <b>discovery</b> — tracing needs its per-class facts. But the agent's
+     * recording and listener add real overhead that perturbs the very wall-clock we optimize, so the
+     * final A/B <b>validation</b> of promising orders (the {@code select} ship gate, {@code validate})
+     * runs with {@code attachAgent=false} for clean timing — those phases only read runtime+status,
+     * never agent facts.
      */
     private static OrderRunner makeRunner(Map<String, String> a, String cp, Path outDir, Path self,
                                           boolean attachAgent) throws Exception {
@@ -208,43 +205,16 @@ public final class Csto2 {
         System.err.println("[csto2] optimizing all " + tests.size() + " classes; will ship only a fully-green order");
 
         // Approaches the user disabled in the wizard / CLI. 'initial' and 'naive' are protected and can
-        // never be skipped (incumbent + free baseline). Only the measurement of a disabled strategy is
-        // avoided — and for pairwise-warm, also its causal-confirmation probe runs below.
+        // never be skipped (incumbent + free baseline). Only the measurement of a disabled strategy is avoided.
         java.util.Set<String> skip = csv(a.get("skip-candidates"));
         skip.removeAll(Candidates.PROTECTED_NAMES);
 
         Map<String, Candidates.Stat> stats = Candidates.stats(tracePath);
         Map<String, List<String>> cands = Candidates.generate(tests, stats, tracePath, heavyAllocMB, heavyJitMs, coldSlope, maxResid);
 
-        // Two runners, two roles. DISCOVERY (agent/JFR on): pair confirmation needs the agent's
-        // per-class allocation deltas to prove a producer warms a consumer. VALIDATION (agent off):
-        // the final candidate A/B is measured clean, since the agent's JFR/listener overhead would
-        // confound the wall-clock the ship gate decides on.
-        OrderRunner discover = makeRunner(a, cp, outDir, self, true);
+        // Validation runner, agent OFF: the agent's recording/listener overhead would confound the very
+        // wall-clock the ship gate decides on, and select reads only runtime+status (never agent facts).
         OrderRunner validate = makeRunner(a, cp, outDir, self, false);
-
-        // Producer->consumer cache-warming candidate: trace-mine pairs (allocation-shed fingerprint),
-        // then CAUSALLY CONFIRM each with a 2-class probe before trusting it. Applied as a minimal
-        // perturbation of initial. Confounded co-occurrence pairs are rejected by the probe. Skipped
-        // entirely when disabled, so its (real-JVM) confirmation probe is avoided too.
-        if (skip.contains("pairwise-warm")) {
-            System.err.println("[csto2] approach disabled: pairwise-warm (skipping pair detection + probe)");
-        } else {
-            double minConsumerAllocMB = Double.parseDouble(a.getOrDefault("pair-consumer-mb", "1000"));
-            double minProducerAllocMB = Double.parseDouble(a.getOrDefault("pair-producer-mb", "200"));
-            double pairDropFrac = Double.parseDouble(a.getOrDefault("pair-drop-frac", "0.25"));
-            List<Candidates.PairSig> raw = Candidates.detectPairs(tracePath, stats,
-                    minConsumerAllocMB, minProducerAllocMB, /*minAllocDropMB*/ 1000, pairDropFrac);
-            for (Candidates.PairSig ps : raw)
-                System.err.printf("[csto2] warm-pair candidate (trace): %s -> %s  (sheds %.0fMB, ~%.0fms)%n",
-                        ps.producer.substring(ps.producer.lastIndexOf('.') + 1),
-                        ps.consumer.substring(ps.consumer.lastIndexOf('.') + 1), ps.allocDropMB, ps.rtDropMs);
-            List<Candidates.PairSig> confirmed = raw.isEmpty() ? raw
-                    : Candidates.confirmPairs(discover, outDir.resolve("probe"), raw, pairDropFrac);
-            if (!confirmed.isEmpty())
-                cands.put("pairwise-warm", Candidates.applyPairsMinimal(tests, confirmed));
-        }
-
 
         // Drop any disabled strategy that was generated above so it is never measured (the costly part).
         for (String s : skip)
@@ -326,72 +296,6 @@ public final class Csto2 {
         }
         System.out.printf("%n=> SHIP: %s  (%.0fms, %.1f%% faster than initial) [green]%n",
                 winner, wm, 100.0 * (base - wm) / base);
-    }
-
-    private static void pairwise(Map<String, String> a) throws Exception {
-        String cp = filterClasspath(req(a, "cp"));
-        Path tracePath = Paths.get(req(a, "trace"));
-        Path factsPath = Paths.get(req(a, "facts"));
-        int repeats = Integer.parseInt(a.getOrDefault("repeats", "5"));
-        int topConsumers = Integer.parseInt(a.getOrDefault("consumers", "12"));
-        Path outDir = Paths.get(a.getOrDefault("out", ".csto2/pairwise"));
-        Path self = Paths.get(Csto2.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        Files.createDirectories(outDir);
-
-        // Stable-passing subset: classes that PASS in every traced order (avoids failure confounds).
-        List<String> stable = stablePassing(tracePath);
-        System.err.println("[csto2] stable-passing classes: " + stable.size());
-
-        OrderOptimizer.Model model = OrderOptimizer.calibrate(tracePath);
-        List<String> sens = Pairwise.sensitiveConsumers(tracePath, model, topConsumers);
-        sens = new ArrayList<>(sens); sens.retainAll(stable);
-        Map<String, java.util.Set<String>> reads = Pairwise.staticReads(factsPath);
-        reads.keySet().retainAll(stable); // only probe stable producers
-
-        OrderRunner orch = makeRunner(a, cp, outDir, self);
-        System.err.println("[csto2] probing pairs for " + sens.size() + " sensitive consumers...");
-        List<Pairwise.Pair> pairs = Pairwise.probe(orch, outDir.resolve("probe.jsonl"),
-                sens, reads, 20.0, 0.15, 4);
-        Pairwise.writeReport(pairs, outDir.resolve("pairs.json"));
-        System.err.println("[csto2] confirmed pairs: " + pairs.size());
-        for (Pairwise.Pair p : pairs)
-            System.err.printf("   %.0fms  %s  ->  %s%n", p.benefitMs,
-                    p.producer.substring(p.producer.lastIndexOf('.') + 1),
-                    p.consumer.substring(p.consumer.lastIndexOf('.') + 1));
-
-        List<String> initial = new ArrayList<>(stable);
-        List<String> slope = OrderOptimizer.optimize(model, stable);
-        List<String> pw = Pairwise.reorder(model, stable, pairs);
-        Path measure = outDir.resolve("measure.jsonl");
-        Files.deleteIfExists(measure);
-        Map<String, List<String>> orders = new LinkedHashMap<>();
-        orders.put("initial", initial); orders.put("slope", slope); orders.put("pairwise", pw);
-        for (Map.Entry<String, List<String>> e : orders.entrySet()) {
-            Path f = outDir.resolve(e.getKey() + ".order");
-            Files.write(f, String.join("\n", e.getValue()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        }
-        for (int r = 0; r < repeats; r++) {
-            for (String name : orders.keySet())
-                orch.runOrder(outDir.resolve(name + ".order"), name + "#" + r, measure);
-            System.err.println("[csto2] measured repeat " + (r + 1) + "/" + repeats);
-        }
-        report(measure);
-    }
-
-    private static List<String> stablePassing(Path tracePath) throws Exception {
-        Map<String, Boolean> ok = new LinkedHashMap<>();
-        for (String line : Files.readAllLines(tracePath)) {
-            line = line.trim(); if (line.isEmpty()) continue;
-            int ti = line.indexOf("\"test\":\""); int si = line.indexOf("\"status\":\"");
-            if (ti < 0 || si < 0) continue;
-            String t = line.substring(ti + 8, line.indexOf('"', ti + 8));
-            String st = line.substring(si + 10, line.indexOf('"', si + 10));
-            ok.merge(t, "PASS".equals(st), (x, y) -> x && y);
-        }
-        List<String> out = new ArrayList<>();
-        for (Map.Entry<String, Boolean> e : ok.entrySet()) if (e.getValue()) out.add(e.getKey());
-        java.util.Collections.sort(out);
-        return out;
     }
 
     private static void report(Path measure) throws Exception {

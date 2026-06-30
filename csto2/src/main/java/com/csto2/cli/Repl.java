@@ -30,7 +30,7 @@ import java.util.stream.Stream;
  *   discover  -> writes a runnable test list, points 'tests' at it
  *   analyze   -> writes static-facts.jsonl, points 'facts' at it
  *   trace     -> writes trace.jsonl (+ jfr/), points 'trace' and 'jfr-dir' at them
- *   select / validate / pairwise -> consume the above, measure, ship a green order
+ *   select / validate -> consume the above, measure, ship a green order
  * </pre>
  *
  * Config is prompted for on demand (nothing is persisted between launches). Output paths are derived
@@ -44,7 +44,7 @@ public final class Repl {
 
     /** Config keys offered by the 'configure' screen, with a one-line hint each. */
     private static final String[][] CONFIG_KEYS = {
-        {"cp", "target test+runtime classpath (discover/trace/select/validate/pairwise)"},
+        {"cp", "target test+runtime classpath (discover/trace/select/validate)"},
         {"app", "app classes classpath (analyze only)"},
         {"lib", "library classpath, optional (analyze only)"},
         {"tests", "file of fully-qualified test class names, one per line"},
@@ -54,7 +54,7 @@ public final class Repl {
         {"workdir", "child-JVM working dir if tests use relative resource paths (optional)"},
         {"orders", "trace: number of orders to run (default 6)"},
         {"seed", "trace: shuffle seed (default 1)"},
-        {"repeats", "measurement rounds for select/validate/pairwise (lower = faster, noisier; select default 4)"},
+        {"repeats", "measurement rounds for select/validate (lower = faster, noisier; select default 4)"},
         {"surefire-ext", "testorder-fork extension jar (optional; auto-located from ~/.m2 when blank)"},
         {"mvn", "mvn binary/wrapper for the Surefire runner (optional; default ./mvnw or mvn)"},
         {"heavy-alloc-mb", "threshold in MB for heavy allocators (default 500)"},
@@ -96,8 +96,7 @@ public final class Repl {
                     case "5" -> trace();
                     case "6" -> select();
                     case "7" -> validate();
-                    case "8" -> pairwise();
-                    case "9" -> fullPipeline();
+                    case "8" -> fullPipeline();
                     case "q", "0", "quit", "exit" -> { break loop; }
                     case "" -> {}
                     default -> System.out.println("unknown choice: " + choice);
@@ -123,9 +122,8 @@ public final class Repl {
         System.out.println("  5) trace            run N orders (with JFR) -> trace.jsonl");
         System.out.println("  6) select           green-gated candidate selection -> ship order");
         System.out.println("  7) validate         slope-model initial-vs-optimized A/B");
-        System.out.println("  8) pairwise         producer->consumer warm-pair probe");
         System.out.println("  --- combined ---");
-        System.out.println("  9) full pipeline    discover -> trace -> select");
+        System.out.println("  8) full pipeline    discover -> trace -> select");
         System.out.println("  q) quit");
     }
 
@@ -187,13 +185,6 @@ public final class Repl {
         a.put("tests", cfg.get("tests"));
         a.put("out", baseDir().resolve("validate").toString());
         Csto2.dispatch("validate", a);
-    }
-
-    private void pairwise() throws Exception {
-        require("cp"); requireFile("trace"); requireFile("facts");
-        Map<String, String> a = args("cp", "trace", "facts", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline");
-        a.put("out", baseDir().resolve("pairwise").toString());
-        Csto2.dispatch("pairwise", a);
     }
 
     private void fullPipeline() throws Exception {
@@ -303,7 +294,7 @@ public final class Repl {
      * {@code cfg["skip-candidates"]} and passed through to {@code select} as {@code --skip-candidates}
      * (so the full pipeline honors them too); a disabled strategy is never measured. {@code initial}
      * and {@code naive} are protected and always run. Affects only {@code select}; {@code validate}
-     * and {@code pairwise} use the slope model, not this portfolio.
+     * uses the slope model, not this portfolio.
      */
     private void approaches() throws Exception {
         while (true) {
