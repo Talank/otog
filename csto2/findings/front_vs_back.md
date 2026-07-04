@@ -2,6 +2,8 @@
 
 ## Front vs Back Allocation Experiment (3 Repeats)
 
+*The "front order" moves each of the tests to the beginning of the test suite.*
+
 ### Overall Suite Runtime (Sum of Test Classes)
 
 | Metric | Front Order (ms) | Back Order (ms) | Change (Back vs Front) |
