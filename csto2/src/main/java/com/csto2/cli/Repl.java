@@ -77,6 +77,7 @@ public final class Repl {
                 catch (Throwable t) { System.out.println("[project] autodetect failed: " + t); }
             }
         }
+        loadPersistedExclusions();
         reportRunnerStatus();
         loop:
         while (true) {
@@ -138,6 +139,7 @@ public final class Repl {
         Csto2.dispatch("discover", a);
         cfg.put("tests", runnable.toString());
         System.out.println("[wired] tests -> " + runnable);
+        loadPersistedExclusions();   // re-apply persisted test-class exclusions to the fresh list
     }
 
     private void analyze() throws Exception {
@@ -259,6 +261,7 @@ public final class Repl {
             for (String e : prev.split(",")) if (!e.isBlank()) allExcluded.add(e.trim());
         allExcluded.addAll(toRemove);
         cfg.put("exclude", String.join(",", allExcluded));
+        saveExclusions(allExcluded);   // persist to <out>/exclude.txt so it survives across launches
 
         System.out.println("[exclude] removed " + toRemove.size() + ": "
                 + toRemove.stream().map(Repl::simple).collect(Collectors.joining(", ")));
@@ -325,6 +328,7 @@ public final class Repl {
             }
             if (disabled.isEmpty()) cfg.remove("skip-candidates");
             else cfg.put("skip-candidates", String.join(",", disabled));
+            saveSkipCandidates(disabled);   // persist to <out>/skip-candidates.txt
         }
         Set<String> disabled = disabledApproaches();
         System.out.println(disabled.isEmpty()
@@ -340,6 +344,75 @@ public final class Repl {
         return out;
     }
 
+    // ---- persisted exclusions ------------------------------------------------------------------
+
+    private Path excludeFile()        { return baseDir().resolve("exclude.txt"); }
+    private Path skipCandidatesFile() { return baseDir().resolve("skip-candidates.txt"); }
+
+    /** Write the full deduped set of excluded test-class FQCNs to {@code <out>/exclude.txt}. */
+    private void saveExclusions(Set<String> excluded) throws IOException {
+        Files.createDirectories(baseDir());
+        Files.write(excludeFile(), String.join("\n", excluded).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Write the disabled candidate strategies to {@code <out>/skip-candidates.txt} (delete when empty). */
+    private void saveSkipCandidates(Set<String> disabled) throws IOException {
+        if (disabled.isEmpty()) { Files.deleteIfExists(skipCandidatesFile()); return; }
+        Files.createDirectories(baseDir());
+        Files.write(skipCandidatesFile(), String.join("\n", disabled).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Restore exclusions persisted by a previous session. Loads disabled candidate strategies into
+     * {@code cfg["skip-candidates"]}, then re-applies persisted test-class exclusions to the CURRENT
+     * test list (writing a fresh {@code tests.included}). Unlike interactive {@link #exclude}, a
+     * persisted name no longer present in the list is silently skipped — the list can legitimately
+     * change between launches, so a stale exclusion is not an error.
+     */
+    private void loadPersistedExclusions() throws IOException {
+        Path skipFile = skipCandidatesFile();
+        if (Files.exists(skipFile)) {
+            Set<String> disabled = new LinkedHashSet<>();
+            for (String line : Files.readAllLines(skipFile)) {
+                String s = line.trim();
+                if (s.isEmpty() || Candidates.PROTECTED_NAMES.contains(s) || !Candidates.ALL_NAMES.contains(s)) continue;
+                disabled.add(s);
+            }
+            if (disabled.isEmpty()) cfg.remove("skip-candidates");
+            else {
+                cfg.put("skip-candidates", String.join(",", disabled));
+                System.out.println("[persist] loaded " + disabled.size() + " disabled approach(es) from " + skipFile);
+            }
+        }
+
+        Path exFile = excludeFile();
+        String testsPath = cfg.get("tests");
+        if (!Files.exists(exFile) || testsPath == null) return;
+        Path testsFile = Paths.get(testsPath);
+        if (!Files.exists(testsFile)) return;
+
+        Set<String> wanted = new LinkedHashSet<>();
+        for (String line : Files.readAllLines(exFile)) { String t = line.trim(); if (!t.isEmpty()) wanted.add(t); }
+        if (wanted.isEmpty()) return;
+
+        List<String> kept = new ArrayList<>();
+        Set<String> applied = new LinkedHashSet<>();
+        for (String line : Files.readAllLines(testsFile)) {
+            String t = line.trim();
+            if (t.isEmpty()) continue;
+            if (wanted.contains(t)) applied.add(t); else kept.add(t);
+        }
+        if (applied.isEmpty()) return;   // nothing in the current list matched; leave tests untouched
+
+        Files.createDirectories(baseDir());
+        Path included = baseDir().resolve("tests.included").toAbsolutePath();
+        Files.write(included, String.join("\n", kept).getBytes(StandardCharsets.UTF_8));
+        cfg.put("tests", included.toString());
+        cfg.put("exclude", String.join(",", applied));
+        System.out.println("[persist] re-applied " + applied.size() + " test-class exclusion(s) from " + exFile
+                + " -> " + included + "  (" + kept.size() + " classes remain)");
+    }
+
     // ---- project autodetect ----------------------------------------------------------------------
 
     private void project() throws Exception {
@@ -348,6 +421,7 @@ public final class Repl {
         dir = dir.trim();
         Path p = dir.isEmpty() ? Paths.get(System.getProperty("user.dir")) : Paths.get(dir);
         loadProject(p);
+        loadPersistedExclusions();   // re-apply persisted exclusions to the freshly loaded list
     }
 
     /**
@@ -519,12 +593,14 @@ public final class Repl {
         String excluded = cfg.get("exclude");
         if (excluded != null && !excluded.isBlank()) {
             String[] ex = excluded.split(",");
-            System.out.printf("  %-9s = %d class(es): %s%n", "exclude", ex.length,
-                    Stream.of(ex).map(Repl::simple).collect(Collectors.joining(", ")));
+            System.out.printf("  %-9s = %d class(es): %s%s%n", "exclude", ex.length,
+                    Stream.of(ex).map(Repl::simple).collect(Collectors.joining(", ")),
+                    Files.exists(excludeFile()) ? "  (persisted)" : "");
         }
         Set<String> disabled = disabledApproaches();
         if (!disabled.isEmpty())
-            System.out.printf("  %-9s = %d disabled: %s%n", "approaches", disabled.size(), String.join(", ", disabled));
+            System.out.printf("  %-9s = %d disabled: %s%s%n", "approaches", disabled.size(),
+                    String.join(", ", disabled), Files.exists(skipCandidatesFile()) ? "  (persisted)" : "");
         System.out.println("  base out  = " + baseDir());
         reportRunnerStatus();
     }
