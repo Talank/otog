@@ -28,9 +28,9 @@ public final class Candidates {
      * wizard offers for enable/disable. {@link #PROTECTED_NAMES} can never be disabled.
      */
     public static final List<String> ALL_NAMES = List.of(
-            "initial", "naive", "alloc-front", "warm-tail", "alloc-front+warm-tail",
-            "pkg-alloc-front", "pkg-rt-front", "pkg-rt-tail", "rt-heavy-tail",
-            "alloc-sort", "jit-front", "jit-sort");
+            "initial", "naive", "alloc-front+warm-tail",
+            "pkg-alloc-front", "pkg-rt-front", "rt-heavy-tail",
+            "alloc-sort", "jit-sort");
 
     /** Strategies that always run: the protected incumbent and the free baseline a real win must beat. */
     public static final java.util.Set<String> PROTECTED_NAMES = java.util.Set.of("initial", "naive");
@@ -74,33 +74,28 @@ public final class Candidates {
 
     /** Build the named candidate orders. */
     public static Map<String, List<String>> generate(List<String> initial, Map<String, Stat> stats, Path tracePath,
-                                                     double heavyAllocMB, double heavyJitMs, double coldSlope, double maxResid,
+                                                     double heavyAllocMB, double coldSlope, double maxResid,
                                                      double heavyRtMs) throws Exception {
         Map<String, List<String>> cands = new LinkedHashMap<>();
         cands.put("initial", new ArrayList<>(initial));      // as-given/default order
         cands.put("naive", fastestObserved(tracePath, initial)); // fastest of the trivially-observed orders
 
-        // heavy allocators, descending; everything else keeps initial order
+        // heavy allocators, descending -- feeds the alloc-front+warm-tail combo below. (The standalone
+        // alloc-front candidate was dropped: 0 shipped wins, dominated by pkg-alloc-front/alloc-sort.)
         List<String> heavy = new ArrayList<>();
         for (String t : initial) { Stat s = stats.get(t); if (s != null && s.allocMB >= heavyAllocMB) heavy.add(t); }
         heavy.sort(Comparator.comparingDouble((String t) -> -stats.get(t).allocMB));
-        cands.put("alloc-front", move(initial, heavy, true));
 
-        // heavy compilers, descending; everything else keeps initial order
-        List<String> heavyJit = new ArrayList<>();
-        for (String t : initial) { Stat s = stats.get(t); if (s != null && s.medJit >= heavyJitMs) heavyJit.add(t); }
-        heavyJit.sort(Comparator.comparingDouble((String t) -> -stats.get(t).medJit));
-        cands.put("jit-front", move(initial, heavyJit, true));
-
-        // confident cold-sensitive classes (steep negative slope, low residual), not heavy
+        // confident cold-sensitive classes (steep negative slope, low residual), not heavy -- feeds the
+        // combo. (The standalone warm-tail candidate was dropped: 0 shipped wins, and the runtime-only
+        // rt-heavy-tail supersedes it, firing even where the slope model is blind.)
         List<String> cold = new ArrayList<>();
         for (String t : initial) {
             Stat s = stats.get(t);
             if (s != null && s.slope <= coldSlope && s.residStd <= maxResid && s.allocMB < heavyAllocMB) cold.add(t);
         }
-        cands.put("warm-tail", move(initial, cold, false));
 
-        // combined: heavy to front AND cold to tail
+        // combined: heavy allocators to front AND cold-sensitive classes to tail
         List<String> combo = move(move(initial, heavy, true), cold, false);
         cands.put("alloc-front+warm-tail", combo);
 
@@ -123,13 +118,6 @@ public final class Candidates {
         for (String t : initial) { Stat s = stats.get(t); if (s != null && s.medRt >= heavyRtMs) heavyRt.add(t); }
         heavyRt.sort(Comparator.comparingDouble((String t) -> stats.get(t).medRt)); // ascending: heaviest deepest in the tail
         cands.put("rt-heavy-tail", move(initial, heavyRt, false));
-
-        // Whole-package runtime TAIL: the tail-mirror of pkg-rt-front. Sort package blocks by aggregate
-        // runtime with the heaviest packages LAST, preserving intra-package order. Middle ground between
-        // rt-heavy-tail's per-class threshold move and a destructive global sort -- keeps package families
-        // adjacent while deferring runtime-heavy regions so they run warmest. Untested standalone; offered
-        // as the symmetric counterpart to pkg-rt-front, and green-gated like every other candidate.
-        cands.put("pkg-rt-tail", packageBlockSort(initial, stats, Signal.RUNTIME, false));
 
         // Global allocation-descending sort: a FULL re-sort by allocation, not the threshold-bounded
         // minimal perturbation of alloc-front. Captures alloc-dominated suites where many MEDIUM
