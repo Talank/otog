@@ -1,0 +1,11 @@
+paper_id,project,module,status,tier,portfolio,R,initial_med_s,fastest_order,fastest_med_s,speedup_vs_initial_pct,median_paired_diff_pct,wilcoxon_W,wilcoxon_p_2sided,significant_p<0.05,beats_naive,green,decision,notes
+M1,javaparser/javaparser,javaparser-symbol-solver-testing,MEASURED,fast,confirm-R15(re-measured),15,8.67,cold-penalty-tail,8.46,2.41,2.35,13,0.0076,yes,y,y,SHIP(marginal),CORRECTED: R=3 screen mis-picked; headroom real but small/unstable (0.45-5.1% across runs); alloc-sort +5.1% p=0.004 historically
+M6,javaparser/javaparser,javaparser-core-testing,MEASURED,fast,full,15,16.29,jit-front,12.74,21.79,21.70,0.0,0.00006,yes,y,y,SHIP,jit-front
+M3,apache/curator,curator-framework,MEASURED,heavy,initial-vs-naive(excl-3-ZK-reconfig),7,521.11,naive,516.32,0.92,0.23,12.0,0.81250,no,n/a,y,keep-initial,excluded:TestFramework
+M8,AsyncHttpClient/async-http-client,client,MEASURED,medium,initial+naive+jit-front,10,193.13,naive,192.98,0.08,0.17,5.0,0.01953,no,n/a,y,keep-initial,naive-AB
+M10,netty/netty,transport,MEASURED,medium,initial+naive+jit-front,10,69.65,naive,69.14,0.74,0.03,18.0,0.37500,no,n/a,y,keep-initial,green-baseline
+M2,apache/curator,curator-recipes,NOT-MEASURED,,,,,,,,,,,,,,,~2h/run (paper 7180s) — infeasible under deadline
+M4,netty/netty,handler,NOT-MEASURED,,,,,,,,,,,,,,,heavy (~2075s paper); deprioritized under deadline
+M5,apache/paimon,paimon-core,NOT-MEASURED,,,,,,,,,,,,,,,not compiled locally
+M7,netty/netty,transport-native-epoll,INFEASIBLE,,,,,,,,,,,,,,,Linux-only JNI (epoll) — cannot run on macOS
+M9,spring-projects/spring-ai,models/spring-ai-openai,NOT-MEASURED,,,,,,,,,,,,,,,network/credential-bound tests

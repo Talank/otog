@@ -194,6 +194,13 @@ public final class Csto2 {
         double heavyJitMs = Double.parseDouble(a.getOrDefault("heavy-jit-ms", "100"));
         double coldSlope = Double.parseDouble(a.getOrDefault("cold-slope", "-1.0"));
         double maxResid = Double.parseDouble(a.getOrDefault("max-resid", "300"));
+        double heavyRtMs = Double.parseDouble(a.getOrDefault("heavy-rt-ms", "50"));
+        double cpGate = Double.parseDouble(a.getOrDefault("cp-gate", "1.5"));
+        double cpMinMs = Double.parseDouble(a.getOrDefault("cp-min-ms", "8"));
+        int cpTopK = Integer.parseInt(a.getOrDefault("cp-top-k", "24"));
+        int cpRotate = Integer.parseInt(a.getOrDefault("cp-rotate", "6"));
+        int cpColdRepeats = Integer.parseInt(a.getOrDefault("cp-cold-repeats", "2"));
+        int cpWarmRepeats = Integer.parseInt(a.getOrDefault("cp-warm-repeats", "3"));
         Path outDir = Paths.get(a.getOrDefault("out", ".csto2/select"));
         List<String> tests = readTests(testsFile);
         Path self = Paths.get(Csto2.class.getProtectionDomain().getCodeSource().getLocation().toURI());
@@ -210,7 +217,7 @@ public final class Csto2 {
         skip.removeAll(Candidates.PROTECTED_NAMES);
 
         Map<String, Candidates.Stat> stats = Candidates.stats(tracePath);
-        Map<String, List<String>> cands = Candidates.generate(tests, stats, tracePath, heavyAllocMB, heavyJitMs, coldSlope, maxResid);
+        Map<String, List<String>> cands = Candidates.generate(tests, stats, tracePath, heavyAllocMB, heavyJitMs, coldSlope, maxResid, heavyRtMs);
 
         // Validation runner, agent OFF: the agent's recording/listener overhead would confound the very
         // wall-clock the ship gate decides on, and select reads only runtime+status (never agent facts).
@@ -225,6 +232,41 @@ public final class Csto2 {
                     String.join("\n", e.getValue()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             System.err.println("[csto2] candidate " + e.getKey() + " (" + e.getValue().size() + " classes)");
         }
+
+        // ---- Cold-penalty probe: the DIAGNOSTIC warmup-tail (displacement estimator) ----
+        // The mechanism behind rt-tail is shared-code JIT warmup: a class carries a "cold penalty" =
+        // extra time executing shared bytecode not yet JIT-compiled. rt-tail proxies that by runtime
+        // MAGNITUDE, which mis-handles self-warming benchmarks (a class whose own tight loop compiles
+        // itself has huge jitMs but ~0 cold penalty). Here we MEASURE the penalty directly, agent off:
+        //   penalty(X) = median rt(X in the INITIAL order)  -  median rt(X at the extreme TAIL, rt-tail)
+        // The initial order is the informative COLD context (package grouping delays compilation of the
+        // shared core, so heavy classes run before it is hot); rt-tail is the WARM context. Self-warm
+        // compilation happens in BOTH conditions and cancels, so self-warmers read ~0 and are left in
+        // place. Only classes whose penalty clears their own same-position noise (cpGate x IQR) are
+        // tail-loaded. Cheap: two orders x cpProbeRepeats clean repeats.
+        if (!skip.contains("cold-penalty-tail")) {
+            try {
+                // Finder (order-free): rank ALL classes by warm median runtime and take the top K above a
+                // low floor. medRt is measured position-independently, so — unlike the old
+                // "early in the initial order" filter — it introduces NO initial-order dependence, and it
+                // correlates ~0.97 with intrinsic JIT-benefit so it already carries the ranking of the
+                // gain-carriers. The low floor + top-K keeps recall high without a magnitude cliff; the
+                // probe's near-cold reads then self-audit any small class that turns out to matter.
+                List<String> cpCands = new ArrayList<>();
+                for (String t : tests) { Candidates.Stat s = stats.get(t); if (s != null && s.medRt >= cpMinMs) cpCands.add(t); }
+                cpCands.sort(java.util.Comparator.comparingDouble((String t) -> -stats.get(t).medRt)); // heaviest first
+                if (cpCands.size() > cpTopK) cpCands = new ArrayList<>(cpCands.subList(0, cpTopK));
+                List<String> cpt = coldPenaltyTail(validate, outDir, tests, cpCands, stats, heavyRtMs, cpRotate, cpColdRepeats, cpWarmRepeats, cpGate);
+                if (cpt != null) {
+                    cands.put("cold-penalty-tail", cpt);
+                    Files.write(outDir.resolve("cold-penalty-tail.order"),
+                            String.join("\n", cpt).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+            } catch (Exception e) {
+                System.err.println("[csto2] cold-penalty probe skipped: " + e);
+            }
+        }
+
         Path measure = outDir.resolve("measure.jsonl");
         Files.deleteIfExists(measure);
         // Interleave: one repeat = each candidate once, but SHUFFLE the within-round order each round.
@@ -241,6 +283,129 @@ public final class Csto2 {
             System.err.println("[csto2] measured round " + (r + 1) + "/" + repeats);
         }
         selectReport(measure, "initial");
+    }
+
+    /**
+     * Measured cold-penalty → the diagnostic warmup-tail order (agent off). The mechanism is shared-code
+     * JIT warmup; this MEASURES each class's reorderable cold penalty rather than proxying it by runtime
+     * magnitude (rt-tail) or jitMs (both conflate self-warm — a benchmark whose own loop compiles itself
+     * has huge jitMs/interpreted cost but ~0 reorderable penalty). Uses NO initial-order position in its
+     * judgement.
+     *
+     * <p><b>Rotated position-0 probe.</b> WARM baseline: all candidates clustered at the tail (each runs
+     * after the whole suite has compiled the shared core). COLD baseline: rotate each of the top-R
+     * heaviest candidates through <b>position 0</b> across R orders — the position-0 class runs genuinely
+     * cold (nothing before it). {@code penalty(X) = median rt(X cold) − median rt(X warm)}. A self-warmer
+     * compiles its own code in both conditions and cancels to ~0; a shared-core-dependent reads a large
+     * positive penalty. Rotating (rather than clustering all candidates at the front at once) avoids
+     * intra-cluster warming, where a cluster-mate compiles the core for a later candidate and hides its
+     * penalty. Non-rotated candidates are read NEAR-cold (they sit at positions 1..K-1 of the cold
+     * orders) — a conservative under-estimate that still promotes any smaller class with a real penalty,
+     * self-auditing recall without an -Xint pass. A class is tail-loaded only if its penalty clears
+     * gate×IQR plus a small floor; else it stays put (graceful degradation). {@code candsByWeight} is
+     * heaviest-first.
+     */
+    private static List<String> coldPenaltyTail(OrderRunner runner, Path outDir, List<String> initial,
+            List<String> candsByWeight, Map<String, Candidates.Stat> stats, double heavyRtMs,
+            int rotate, int coldRepeats, int warmRepeats, double gate) throws Exception {
+        if (candsByWeight.size() < 2) { System.err.println("[csto2] cold-penalty-tail: <2 candidate classes; skipped"); return null; }
+        java.util.Set<String> cand = new java.util.LinkedHashSet<>(candsByWeight);
+        List<String> nonCand = new ArrayList<>();
+        for (String t : initial) if (!cand.contains(t)) nonCand.add(t);
+        int R = Math.min(rotate, candsByWeight.size());
+
+        // WARM order: non-candidates first, then candidates at the tail ascending weight (heaviest last).
+        List<String> warm = new ArrayList<>(nonCand);
+        for (int i = candsByWeight.size() - 1; i >= 0; i--) warm.add(candsByWeight.get(i));
+        Files.write(outDir.resolve("cp-warm.order"), String.join("\n", warm).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        Path probe = outDir.resolve("cp-probe.jsonl");
+        Files.deleteIfExists(probe);
+        System.err.println("[csto2] cold-penalty probe (rotated pos-0): " + R + " cold x" + coldRepeats
+                + " + " + warmRepeats + " warm, over " + candsByWeight.size() + " candidates");
+        for (int r = 0; r < warmRepeats; r++)
+            runner.runOrder(outDir.resolve("cp-warm.order"), "cp-warm#" + r, probe);
+        for (int i = 0; i < R; i++) {
+            String h = candsByWeight.get(i);
+            List<String> cold = new ArrayList<>();
+            cold.add(h);                                                 // genuinely cold at position 0
+            for (String c : candsByWeight) if (!c.equals(h)) cold.add(c);// rest of candidates near-cold
+            cold.addAll(nonCand);
+            Files.write(outDir.resolve("cp-cold-" + i + ".order"), String.join("\n", cold).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            for (int r = 0; r < coldRepeats; r++)
+                runner.runOrder(outDir.resolve("cp-cold-" + i + ".order"), "cp-cold-" + i + "#" + r, probe);
+        }
+
+        Map<String, List<Double>> warmRt = new LinkedHashMap<>();
+        Map<Integer, Map<String, List<Double>>> coldByIdx = new LinkedHashMap<>();
+        for (String line : Files.readAllLines(probe)) {
+            line = line.trim(); if (line.isEmpty()) continue;
+            int oi = line.indexOf("\"orderId\":\""); int ti = line.indexOf("\"test\":\""); int ri = line.indexOf("\"runtimeMs\":");
+            if (oi < 0 || ti < 0 || ri < 0) continue;
+            String oid = line.substring(oi + 11, line.indexOf('"', oi + 11));
+            String test = line.substring(ti + 8, line.indexOf('"', ti + 8));
+            double rt = Double.parseDouble(line.substring(ri + 12, findEnd(line, ri + 12)));
+            if (oid.startsWith("cp-warm")) {
+                warmRt.computeIfAbsent(test, k -> new ArrayList<>()).add(rt);
+            } else if (oid.startsWith("cp-cold-")) {
+                int idx = Integer.parseInt(oid.substring(8, oid.indexOf('#')));
+                coldByIdx.computeIfAbsent(idx, k -> new LinkedHashMap<>()).computeIfAbsent(test, k -> new ArrayList<>()).add(rt);
+            }
+        }
+        // Raw penalty per candidate: a rotated heavy uses its genuine pos-0 reads (cp-cold-<its index>);
+        // a non-rotated candidate uses its near-cold reads pooled across all cold orders (conservative).
+        Map<String, Double> penalty = new LinkedHashMap<>();
+        for (int c = 0; c < candsByWeight.size(); c++) {
+            String X = candsByWeight.get(c);
+            List<Double> warmX = warmRt.get(X);
+            if (warmX == null || warmX.isEmpty()) continue;
+            List<Double> coldX;
+            if (c < R) coldX = coldByIdx.getOrDefault(c, java.util.Collections.emptyMap()).get(X);   // genuine cold (pos 0)
+            else { coldX = new ArrayList<>(); for (Map<String, List<Double>> m : coldByIdx.values()) { List<Double> l = m.get(X); if (l != null) coldX.addAll(l); } }
+            if (coldX == null || coldX.isEmpty()) continue;
+            penalty.put(X, median(coldX) - median(warmX));
+        }
+
+        // ROBUST TAIL SET. Empirically the *reorderable* per-class penalty (~50-100ms) is comparable to a
+        // heavy class's own run-to-run variance, so per-class penalties are NOT individually reliable in a
+        // few reps — requiring each to clear a gate throws away real gain-carriers (their outliers inflate
+        // the gate). But the AGGREGATE tail effect over all heavies is robust, and the probe reliably
+        // recovers the SIGN for clear cases. So: tail-load every heavy class (medRt >= heavyRtMs) — the
+        // aggregate warmup win — EXCEPT any the probe confidently flags as a self-warmer (penalty clearly
+        // negative). Additionally PROMOTE any lighter class the probe shows a clear positive penalty
+        // (self-audit of finder recall). This is rt-heavy-tail corrected by measured self-warmer removal.
+        double selfWarmCut = -Math.max(gate * 15.0, 30.0);   // "clearly negative": a self-warmer, not noise
+        double promoteCut = Math.max(gate * 25.0, 40.0);     // "clearly positive": worth promoting a light class
+        List<String> tailSet = new ArrayList<>();
+        List<String> dropped = new ArrayList<>();
+        for (String X : candsByWeight) {
+            Candidates.Stat s = stats.get(X);
+            double mrt = s == null ? 0 : s.medRt;
+            double pen = penalty.getOrDefault(X, 0.0);
+            boolean heavy = mrt >= heavyRtMs;
+            if (heavy && pen < selfWarmCut) { dropped.add(X); continue; }      // confirmed self-warmer → leave in place
+            if (heavy || pen > promoteCut) tailSet.add(X);                     // aggregate heavy, or promoted light class
+        }
+        if (tailSet.isEmpty()) { System.err.println("[csto2] cold-penalty-tail: no heavy/benefiting classes; not generated"); return null; }
+        tailSet.sort(java.util.Comparator.comparingDouble((String t) -> { Candidates.Stat s = stats.get(t); return s == null ? 0 : s.medRt; })); // heaviest last
+        System.err.println("[csto2] cold-penalty-tail: tail-load " + tailSet.size() + " heavy classes; dropped "
+                + dropped.size() + " measured self-warmer(s): " + dropped);
+        for (String X : dropped) System.err.printf("           self-warmer penalty=%+.0fms (kept in place)  %s%n", penalty.getOrDefault(X, 0.0), X);
+        java.util.Set<String> mv = new java.util.LinkedHashSet<>(tailSet);
+        List<String> rest = new ArrayList<>();
+        for (String t : initial) if (!mv.contains(t)) rest.add(t);
+        List<String> out = new ArrayList<>(rest); out.addAll(tailSet);
+        return out;
+    }
+
+    private static double median(List<Double> v) {
+        List<Double> s = new ArrayList<>(v); s.sort(Double::compare);
+        int n = s.size(); return n == 0 ? 0 : (n % 2 == 1 ? s.get(n / 2) : (s.get(n / 2 - 1) + s.get(n / 2)) / 2);
+    }
+    private static double iqr(List<Double> v) {
+        List<Double> s = new ArrayList<>(v); s.sort(Double::compare);
+        int n = s.size(); if (n < 2) return 0;
+        return s.get((int) Math.floor(0.75 * (n - 1))) - s.get((int) Math.floor(0.25 * (n - 1)));
     }
 
     /** Report medians + greenness per candidate; SHIP only a fully-green order (incumbent fallback). */

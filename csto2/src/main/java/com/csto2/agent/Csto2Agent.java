@@ -23,8 +23,12 @@ public final class Csto2Agent {
         // would NoClassDefFoundError and abort the whole fork. Guard on it: when the Platform is not
         // present we no-op, and the run still yields runtime+status from Surefire's own reports.
         if (!junitPlatformPresent()) {
-            System.err.println("[csto2-agent] JUnit Platform not on classpath (JUnit4/TestNG?); "
-                    + "per-class instrumentation disabled (Surefire reports still give runtime+status)");
+            System.err.println("[csto2-agent] JUnit Platform not on classpath (plain-JUnit4/TestNG?); "
+                    + "per-class instrumentation disabled — Surefire reports still give runtime+status, so "
+                    + "runtime-only strategies (rt-tail/rt-heavy-tail/cold-penalty-tail) still work.");
+            System.err.println("[csto2-agent] To recover per-class jit/gc/alloc facts on a JUnit4 suite, add "
+                    + "junit-vintage-engine + junit-platform-launcher as test deps: Surefire then runs the "
+                    + "tests via the JUnit Platform (vintage) provider and this listener loads.");
             return;
         }
         try {

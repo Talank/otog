@@ -156,8 +156,31 @@ mechanism. The full set:
   locality-bound ones — safe only because the green gate filters it.
 - `jit-sort` — full global sort by per-test compilation time (`jitMs`) descending. The lever for
   **JIT-bound** suites (e.g. jackson-core, where ~8.5s of a 12s run is compilation).
+- `rt-tail` / `rt-heavy-tail` — **runtime-only** warmup-tail (keyed on `runtimeMs`, so they fire even
+  when the agent records no MXBean facts — e.g. plain-JUnit4 suites Surefire runs via the junit4
+  provider, where the Platform listener never loads). `rt-tail` sorts the whole suite by median
+  runtime ascending (heaviest last); `rt-heavy-tail` moves only classes with `medRt ≥ --heavy-rt-ms`
+  (default 50 ms) to the tail, preserving locality. The lever for **warmup-bound** suites
+  of many tiny classes plus a few heavy ones: the tiny classes JIT-warm the shared core; the heavy
+  ones inherit that warmth if run last. Wins snakeyaml +5.8% (`findings/warmup_tail_junit4.md`) where
+  the whole signal-based portfolio is blind. `warm-tail` misses this — its `≤ -1.0` slope threshold is
+  calibrated for steep slopes, but tiny classes have shallow (~ -0.1) slopes that still aggregate.
 
 **Added by `select` itself:**
+- `cold-penalty-tail` (`select`'s cold-penalty probe) — the **diagnostic** warmup-tail. `rt-tail`/
+  `rt-heavy-tail` proxy the warmup mechanism by runtime magnitude; per-class `jitMs` mis-ranks it too
+  (a self-warming benchmark whose own loop compiles has huge jitMs but ~0 reorderable cold penalty).
+  This MEASURES each class's cold penalty via a **rotated position-0 probe** (agent off, no initial-order
+  dependence anywhere): warm = candidates clustered at the tail; cold = rotate each of the top-`--cp-rotate`
+  heavy candidates through **position 0** (genuinely cold; rotation avoids the intra-cluster warming a
+  front-cluster suffers). Finder = warm-`medRt` top-`--cp-top-k` above a low `--cp-min-ms` floor
+  (position-independent, no magnitude cliff). **Key finding** (`findings/cold_penalty_diagnostic.md`):
+  the per-class reorderable penalty (~50-100ms) ≈ each class's own run-to-run noise, so per-class
+  selection is unreliable and *loses to aggregation*; the probe's robust contribution is self-warmer
+  sign. So the shipped order is `rt-heavy-tail` **corrected by measured self-warmer removal**: tail-load
+  all heavy classes, drop any the probe confidently shows self-warming, promote any clearly-benefiting
+  light class. snakeyaml +8.1% (matches rt-heavy-tail; never underperforms it). Degrades gracefully.
+
 - `jfr-gc-front` / `jfr-warmup-front` / `jfr-gc+warmup-front` (`optimize/JfrClassifier`) — only when
   a JFR facts dir exists. Classifies tests by **mechanism** from aggregated JFR facts:
   `GC_CARRIER` (does real old/full GCs → wants a fresh low-occupancy heap → run early),
@@ -211,7 +234,9 @@ no longer csto2's job. Remaining knobs:
   `target/test-classes`).
 - `--jvmargs "<args>"` / `--java <home>` — only affect the `discover` helper JVM now, not measurement.
 
-`select` thresholds: `--heavy-alloc-mb` (500), `--cold-slope` (-1.0), `--max-resid` (300),
+`select` thresholds: `--heavy-alloc-mb` (500), `--heavy-rt-ms` (50), `--cp-min-ms` (8), `--cp-top-k`
+(24), `--cp-rotate` (6), `--cp-cold-repeats` (2), `--cp-warm-repeats` (3), `--cp-gate` (1.5),
+`--cold-slope` (-1.0), `--max-resid` (300),
 `--pair-consumer-mb` (1000), `--pair-producer-mb` (200), `--pair-drop-frac` (0.25), `--jfr-dir`,
 `--jfr-min-loads` (200), `--jfr-min-share` (0.3). (These warmup thresholds are deliberately low — the
 green gate filters any over-eager candidate, so casting a wider net for shareable-warmup carriers only

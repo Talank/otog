@@ -30,14 +30,15 @@ public final class Candidates {
     public static final List<String> ALL_NAMES = List.of(
             "initial", "naive", "alloc-front", "warm-tail", "alloc-front+warm-tail",
             "pkg-alloc-front", "pkg-rt-front",
-            "alloc-sort", "jit-front", "jit-sort");
+            "alloc-sort", "jit-front", "jit-sort",
+            "rt-tail", "rt-heavy-tail", "cold-penalty-tail");
 
     /** Strategies that always run: the protected incumbent and the free baseline a real win must beat. */
     public static final java.util.Set<String> PROTECTED_NAMES = java.util.Set.of("initial", "naive");
 
     public static final class Stat {
-        double allocMB, slope, intercept, residStd, medRt, medJit;
-        int n;
+        public double allocMB, slope, intercept, residStd, medRt, medJit;
+        public int n;
     }
 
     public static Map<String, Stat> stats(Path tracePath) throws Exception {
@@ -74,7 +75,8 @@ public final class Candidates {
 
     /** Build the named candidate orders. */
     public static Map<String, List<String>> generate(List<String> initial, Map<String, Stat> stats, Path tracePath,
-                                                     double heavyAllocMB, double heavyJitMs, double coldSlope, double maxResid) throws Exception {
+                                                     double heavyAllocMB, double heavyJitMs, double coldSlope, double maxResid,
+                                                     double heavyRtMs) throws Exception {
         Map<String, List<String>> cands = new LinkedHashMap<>();
         cands.put("initial", new ArrayList<>(initial));      // as-given/default order
         cands.put("naive", fastestObserved(tracePath, initial)); // fastest of the trivially-observed orders
@@ -135,6 +137,35 @@ public final class Candidates {
             return s == null ? 0 : -s.medJit;      // heaviest compiler first
         }));
         cands.put("jit-sort", jitSorted);
+
+        // Runtime-magnitude warmup-tail: sort the WHOLE suite by median per-class runtime ASCENDING, so
+        // the heaviest classes run LAST. This is the runtime-only sibling of warm-tail, and it is the
+        // lever for JVM-WARMUP-BOUND suites made of many tiny classes plus a few heavy ones: the tiny
+        // classes run first and JIT-compile the shared library core (parser/emitter/reflection/etc.);
+        // the heavy classes then inherit maximum accumulated warmth and run compiled instead of
+        // interpreted. Crucially this keys on runtimeMs alone -- so it still fires when the MXBean agent
+        // records NO alloc/jit/gc facts (e.g. plain-JUnit4 suites Surefire runs via the junit4 provider,
+        // where the JUnit Platform listener never loads and alloc-front/jit-sort/warm-tail all degenerate
+        // to initial). Measured snakeyaml (349 JUnit4 classes) +7.7% vs initial where csto2's whole
+        // signal-based portfolio managed only a noisy +2.2%. warm-tail misses this because its per-class
+        // negative-slope threshold (<= -1.0 ms/pos) is calibrated for STEEP slopes; a suite of many tiny
+        // classes has shallow slopes (~ -0.1) so nothing qualifies, yet the aggregate tail effect is large.
+        List<String> rtTail = new ArrayList<>(initial);
+        rtTail.sort(Comparator.comparingDouble((String t) -> {
+            Stat s = stats.get(t);
+            return s == null ? 0 : s.medRt;        // smallest first, heaviest last
+        }));
+        cands.put("rt-tail", rtTail);
+
+        // Minimal-perturbation variant: move ONLY the heavy-runtime classes (>= heavyRtMs) to the tail,
+        // ascending, and keep every other class in its original position. Same warmup-tail mechanism as
+        // rt-tail but it preserves the suite-authored adjacency/locality of the light classes, so it is
+        // safe on locality-bound suites that a full re-sort would shred (cf. alloc-sort losing -17% on
+        // javaparser). select's green gate ships whichever of the two actually measures faster.
+        List<String> heavyRt = new ArrayList<>();
+        for (String t : initial) { Stat s = stats.get(t); if (s != null && s.medRt >= heavyRtMs) heavyRt.add(t); }
+        heavyRt.sort(Comparator.comparingDouble((String t) -> stats.get(t).medRt)); // ascending: heaviest truly last
+        cands.put("rt-heavy-tail", move(initial, heavyRt, false));
 
         return cands;
     }

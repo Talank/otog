@@ -6,6 +6,7 @@
 | apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | Ran `commons-math-legacy`; Excluded 3 RNG-dependent tests (simplex optimizers) |
 | alibaba/fastjson2 | pkg-alloc-front | 22462ms | 23171ms | 1.1% | -3.2% | Ran `core`; did not run with all approaches |
 | javaparser/javaparser | alloc-sort | 22028ms | 22092ms | 11.1% | -0.3% | module: `symbol-solver-testing`; more measurement runs; alloc-front+warm-tail was close second |
+| snakeyaml/snakeyaml | rt-heavy-tail | 3114ms | 3169ms | 5.8% | -1.8% | **NEW lever** (`warmup_tail_junit4.md`). Plain-JUnit4 → agent records no facts, so all signal-based candidates degenerate to initial (best pre-existing was a noisy +2.2%). 82% of runtime is 4 heavy parser-core classes; tail-loading them (they inherit JIT warmth from 345 tiny classes) wins. Excludes `BillionLaughsAttackTest` (OOMs single-fork by design); pom `-Xmx512m`→`3g` so 349 classes fit one fork. |
 
 # Logs
 
