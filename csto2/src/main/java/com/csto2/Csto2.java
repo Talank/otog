@@ -307,8 +307,8 @@ public final class Csto2 {
         Path testsFile = Paths.get(req(a, "tests"));
         Path tracePath = Paths.get(req(a, "trace"));
         int repeats = Integer.parseInt(a.getOrDefault("repeats", "4"));
-        double heavyAllocMB = Double.parseDouble(a.getOrDefault("heavy-alloc-mb", "500"));
-        double heavyRtMs = Double.parseDouble(a.getOrDefault("heavy-rt-ms", "50"));
+        double heavyK = Double.parseDouble(a.getOrDefault("heavy-k", "3.0"));
+        double heavyCap = Double.parseDouble(a.getOrDefault("heavy-cap", "0.15"));
         double coldSlope = Double.parseDouble(a.getOrDefault("cold-slope", "-1.0"));
         double maxResid = Double.parseDouble(a.getOrDefault("max-resid", "300"));
         Path outDir = Paths.get(a.getOrDefault("out", ".csto2/select"));
@@ -327,7 +327,7 @@ public final class Csto2 {
         skip.removeAll(Candidates.PROTECTED_NAMES);
 
         Map<String, Candidates.Stat> stats = Candidates.stats(tracePath);
-        Map<String, List<String>> cands = Candidates.generate(tests, stats, tracePath, heavyAllocMB, coldSlope, maxResid, heavyRtMs);
+        Map<String, List<String>> cands = Candidates.generate(tests, stats, tracePath, coldSlope, maxResid, heavyK, heavyCap);
 
         // Validation runner, agent OFF: the agent's recording/listener overhead would confound the very
         // wall-clock the ship gate decides on, and select reads only runtime+status (never agent facts).

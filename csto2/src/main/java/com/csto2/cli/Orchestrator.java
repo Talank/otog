@@ -48,8 +48,8 @@ public final class Orchestrator {
         {"repeats", "measurement rounds for select/validate (lower = faster, noisier; select default 4)"},
         {"surefire-ext", "testorder-fork extension jar (optional; auto-located from ~/.m2 when blank)"},
         {"mvn", "mvn binary/wrapper for the Surefire runner (optional; default ./mvnw or mvn)"},
-        {"heavy-alloc-mb", "threshold in MB for heavy allocators (default 500)"},
-        {"heavy-rt-ms", "threshold in ms for runtime-heavy tests moved to the tail (default 50)"},
+        {"heavy-k", "robust deviations (log mean+k*stddev) above which a class counts as heavy (default 3.0)"},
+        {"heavy-cap", "max fraction of the suite a heavy-outlier move may relocate (default 0.15)"},
     };
 
     /** Output base dir, always ABSOLUTE. */
@@ -157,7 +157,7 @@ public final class Orchestrator {
 
     public void select() throws Exception {
         require("cp"); require("tests"); requireFile("trace");
-        Map<String, String> a = args("cp", "trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "skip-candidates", "heavy-alloc-mb", "heavy-rt-ms");
+        Map<String, String> a = args("cp", "trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "skip-candidates", "heavy-k", "heavy-cap");
         a.put("tests", cfg.get("tests"));
         a.put("out", baseDir().resolve("select").toString());
         Csto2.dispatch("select", a);

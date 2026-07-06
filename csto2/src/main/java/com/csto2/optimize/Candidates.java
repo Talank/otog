@@ -74,25 +74,26 @@ public final class Candidates {
 
     /** Build the named candidate orders. */
     public static Map<String, List<String>> generate(List<String> initial, Map<String, Stat> stats, Path tracePath,
-                                                     double heavyAllocMB, double coldSlope, double maxResid,
-                                                     double heavyRtMs) throws Exception {
+                                                     double coldSlope, double maxResid,
+                                                     double heavyK, double heavyCap) throws Exception {
         Map<String, List<String>> cands = new LinkedHashMap<>();
         cands.put("initial", new ArrayList<>(initial));      // as-given/default order
         cands.put("naive", fastestObserved(tracePath, initial)); // fastest of the trivially-observed orders
 
-        // heavy allocators, descending -- feeds the alloc-front+warm-tail combo below. (The standalone
-        // alloc-front candidate was dropped: 0 shipped wins, dominated by pkg-alloc-front/alloc-sort.)
-        List<String> heavy = new ArrayList<>();
-        for (String t : initial) { Stat s = stats.get(t); if (s != null && s.allocMB >= heavyAllocMB) heavy.add(t); }
+        // heavy allocators (adaptive log-MAD outliers), descending -- feeds the alloc-front+warm-tail
+        // combo below. (The standalone alloc-front candidate was dropped: 0 shipped wins, dominated by
+        // pkg-alloc-front/alloc-sort.)
+        List<String> heavy = heavyOutliers(initial, stats, s -> s.allocMB, heavyK, heavyCap);
         heavy.sort(Comparator.comparingDouble((String t) -> -stats.get(t).allocMB));
+        java.util.Set<String> heavyAllocSet = new java.util.HashSet<>(heavy);
 
-        // confident cold-sensitive classes (steep negative slope, low residual), not heavy -- feeds the
-        // combo. (The standalone warm-tail candidate was dropped: 0 shipped wins, and the runtime-only
-        // rt-heavy-tail supersedes it, firing even where the slope model is blind.)
+        // confident cold-sensitive classes (steep negative slope, low residual), not a heavy allocator --
+        // feeds the combo. (The standalone warm-tail candidate was dropped: 0 shipped wins, and the
+        // runtime-only rt-heavy-tail supersedes it, firing even where the slope model is blind.)
         List<String> cold = new ArrayList<>();
         for (String t : initial) {
             Stat s = stats.get(t);
-            if (s != null && s.slope <= coldSlope && s.residStd <= maxResid && s.allocMB < heavyAllocMB) cold.add(t);
+            if (s != null && s.slope <= coldSlope && s.residStd <= maxResid && !heavyAllocSet.contains(t)) cold.add(t);
         }
 
         // combined: heavy allocators to front AND cold-sensitive classes to tail
@@ -106,18 +107,18 @@ public final class Candidates {
         cands.put("pkg-alloc-front", packageBlockSort(initial, stats, Signal.ALLOC, true));
         cands.put("pkg-rt-front", packageBlockSort(initial, stats, Signal.RUNTIME, true));
 
-        // Runtime-heavy TAIL: move the runtime-heaviest classes (medRt >= heavyRtMs) to the tail,
+        // Runtime-heavy TAIL: move the runtime-heaviest classes (adaptive log-MAD outliers) to the tail,
         // preserving initial order within the tail and among the rest. Runtime-only, so it fires even
         // on plain-JUnit4 suites where the agent is blind (jitMs/alloc = 0) and warm-tail's slope model
         // has no signal to fit -- exactly the case warm-tail structurally misses. Locality-preserving
-        // (threshold-bounded, not a global sort), so the few heavy classes inherit maximum accumulated
-        // JIT/type-cache warmth by running last, while the rest keep suite-authored adjacency. Won
-        // snakeyaml (+5.8-8.1%) and jackson-core (+4.8%); regressions (e.g. commons-math, where the
-        // heavies are position-invariant self-warmers) are gated out by select's green gate.
-        List<String> heavyRt = new ArrayList<>();
-        for (String t : initial) { Stat s = stats.get(t); if (s != null && s.medRt >= heavyRtMs) heavyRt.add(t); }
+        // (outlier-bounded + capped, not a global sort), so the few heavy classes inherit maximum
+        // accumulated JIT/type-cache warmth by running last, while the rest keep suite-authored
+        // adjacency. Won snakeyaml (+5.8-8.1%) and jackson-core (+4.8%); regressions (e.g. commons-math,
+        // where the heavies are position-invariant self-warmers) are gated out by select's green gate.
+        List<String> heavyRt = heavyOutliers(initial, stats, s -> s.medRt, heavyK, heavyCap);
         heavyRt.sort(Comparator.comparingDouble((String t) -> stats.get(t).medRt)); // ascending: heaviest deepest in the tail
         cands.put("rt-heavy-tail", move(initial, heavyRt, false));
+
 
         // Global allocation-descending sort: a FULL re-sort by allocation, not the threshold-bounded
         // minimal perturbation of alloc-front. Captures alloc-dominated suites where many MEDIUM
@@ -251,5 +252,55 @@ public final class Candidates {
     private static double median(List<double[]> v, int idx) {
         List<Double> s = new ArrayList<>(); for (double[] p : v) s.add(p[idx]); s.sort(Double::compare);
         int n = s.size(); return n == 0 ? 0 : (n % 2 == 1 ? s.get(n / 2) : (s.get(n / 2 - 1) + s.get(n / 2)) / 2);
+    }
+
+    private static double medianOf(List<Double> v) {
+        if (v.isEmpty()) return 0;
+        List<Double> s = new ArrayList<>(v); s.sort(Double::compare);
+        int n = s.size(); return n % 2 == 1 ? s.get(n / 2) : (s.get(n / 2 - 1) + s.get(n / 2)) / 2;
+    }
+
+    /**
+     * Adaptive "heavy" selection. Flags a class heavy when its signal, on a LOG scale, sits more than
+     * {@code k} standard deviations above the mean: {@code log1p(signal) > mean + k * stddev}. Log scale
+     * because test signals (runtime, allocation) are multiplicative and span orders of magnitude; the log
+     * transform naturally reins in extreme outliers so the mean and standard deviation remain robust. This
+     * replaces the old fixed absolute cutoffs (heavy-rt-ms=50, heavy-alloc-mb=500), which picked a
+     * suite-dependent fraction (2% of snakeyaml but 10%+ of others) for the same number.
+     *
+     * <p>Capped at {@code capFrac} of the suite so it can NEVER degenerate into a global sort (the whole
+     * point of a threshold-based, locality-preserving move); if more than the cap qualify, the top
+     * {@code capFrac} by raw signal are kept. Returns [] when there is no clear heavy tail (uniform
+     * suite) or the signal is absent (e.g. alloc on an agent-blind plain-JUnit4 run) -- the candidate
+     * then degenerates harmlessly to initial, which the green gate treats as a duplicate.
+     */
+    static List<String> heavyOutliers(List<String> initial, Map<String, Stat> stats,
+                                      java.util.function.ToDoubleFunction<Stat> signal, double k, double capFrac) {
+        int n = initial.size();
+        if (n == 0) return new ArrayList<>();
+        List<Double> logs = new ArrayList<>(n);
+        for (String t : initial) {
+            Stat s = stats.get(t);
+            double v = s == null ? 0 : Math.max(0, signal.applyAsDouble(s));
+            logs.add(Math.log1p(v));
+        }
+        double mean = 0;
+        for (double x : logs) mean += x;
+        mean /= n;
+        double var = 0;
+        for (double x : logs) var += (x - mean) * (x - mean);
+        var /= n;
+        double stddev = Math.sqrt(var);
+        double thr = mean + k * stddev;
+        List<String> heavy = new ArrayList<>();
+        for (int i = 0; i < n; i++) if (logs.get(i) > thr) heavy.add(initial.get(i));
+        int cap = Math.max(1, (int) Math.floor(n * capFrac));
+        if (heavy.size() > cap) {
+            heavy.sort(Comparator.comparingDouble((String t) -> {
+                Stat s = stats.get(t); return s == null ? 0 : -signal.applyAsDouble(s);
+            }));
+            heavy = new ArrayList<>(heavy.subList(0, cap));
+        }
+        return heavy;
     }
 }
