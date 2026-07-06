@@ -29,7 +29,7 @@ public final class Candidates {
      */
     public static final List<String> ALL_NAMES = List.of(
             "initial", "naive", "alloc-front", "warm-tail", "alloc-front+warm-tail",
-            "pkg-alloc-front", "pkg-rt-front",
+            "pkg-alloc-front", "pkg-rt-front", "pkg-rt-tail", "rt-heavy-tail",
             "alloc-sort", "jit-front", "jit-sort");
 
     /** Strategies that always run: the protected incumbent and the free baseline a real win must beat. */
@@ -74,7 +74,8 @@ public final class Candidates {
 
     /** Build the named candidate orders. */
     public static Map<String, List<String>> generate(List<String> initial, Map<String, Stat> stats, Path tracePath,
-                                                     double heavyAllocMB, double heavyJitMs, double coldSlope, double maxResid) throws Exception {
+                                                     double heavyAllocMB, double heavyJitMs, double coldSlope, double maxResid,
+                                                     double heavyRtMs) throws Exception {
         Map<String, List<String>> cands = new LinkedHashMap<>();
         cands.put("initial", new ArrayList<>(initial));      // as-given/default order
         cands.put("naive", fastestObserved(tracePath, initial)); // fastest of the trivially-observed orders
@@ -107,8 +108,28 @@ public final class Candidates {
         // project's original order inside each package. This is the middle ground between minimal
         // local perturbations and destructive global sorts. It keeps suite-authored adjacency within
         // coherent test families while still moving alloc/runtime-heavy regions earlier.
-        cands.put("pkg-alloc-front", packageBlockSort(initial, stats, Signal.ALLOC));
-        cands.put("pkg-rt-front", packageBlockSort(initial, stats, Signal.RUNTIME));
+        cands.put("pkg-alloc-front", packageBlockSort(initial, stats, Signal.ALLOC, true));
+        cands.put("pkg-rt-front", packageBlockSort(initial, stats, Signal.RUNTIME, true));
+
+        // Runtime-heavy TAIL: move the runtime-heaviest classes (medRt >= heavyRtMs) to the tail,
+        // preserving initial order within the tail and among the rest. Runtime-only, so it fires even
+        // on plain-JUnit4 suites where the agent is blind (jitMs/alloc = 0) and warm-tail's slope model
+        // has no signal to fit -- exactly the case warm-tail structurally misses. Locality-preserving
+        // (threshold-bounded, not a global sort), so the few heavy classes inherit maximum accumulated
+        // JIT/type-cache warmth by running last, while the rest keep suite-authored adjacency. Won
+        // snakeyaml (+5.8-8.1%) and jackson-core (+4.8%); regressions (e.g. commons-math, where the
+        // heavies are position-invariant self-warmers) are gated out by select's green gate.
+        List<String> heavyRt = new ArrayList<>();
+        for (String t : initial) { Stat s = stats.get(t); if (s != null && s.medRt >= heavyRtMs) heavyRt.add(t); }
+        heavyRt.sort(Comparator.comparingDouble((String t) -> stats.get(t).medRt)); // ascending: heaviest deepest in the tail
+        cands.put("rt-heavy-tail", move(initial, heavyRt, false));
+
+        // Whole-package runtime TAIL: the tail-mirror of pkg-rt-front. Sort package blocks by aggregate
+        // runtime with the heaviest packages LAST, preserving intra-package order. Middle ground between
+        // rt-heavy-tail's per-class threshold move and a destructive global sort -- keeps package families
+        // adjacent while deferring runtime-heavy regions so they run warmest. Untested standalone; offered
+        // as the symmetric counterpart to pkg-rt-front, and green-gated like every other candidate.
+        cands.put("pkg-rt-tail", packageBlockSort(initial, stats, Signal.RUNTIME, false));
 
         // Global allocation-descending sort: a FULL re-sort by allocation, not the threshold-bounded
         // minimal perturbation of alloc-front. Captures alloc-dominated suites where many MEDIUM
@@ -146,7 +167,7 @@ public final class Candidates {
      * ties and preserving the original class order inside each package. The stability matters:
      * package adjacency often encodes fixture/resource/JIT locality that per-class global sorts break.
      */
-    static List<String> packageBlockSort(List<String> initial, Map<String, Stat> stats, Signal signal) {
+    static List<String> packageBlockSort(List<String> initial, Map<String, Stat> stats, Signal signal, boolean toFront) {
         final class Block {
             final String pkg;
             final int first;
@@ -178,7 +199,12 @@ public final class Candidates {
             b.members.add(t);
         }
         List<Block> ordered = new ArrayList<>(blocks.values());
-        ordered.sort(Comparator.comparingDouble(Block::score).reversed().thenComparingInt(b -> b.first));
+        // toFront: heaviest packages first (score desc). toTail: heaviest packages last (score asc),
+        // so runtime-heavy regions run warmest. Ties keep first-appearance order either way.
+        Comparator<Block> byScore = toFront
+                ? Comparator.comparingDouble(Block::score).reversed()
+                : Comparator.comparingDouble(Block::score);
+        ordered.sort(byScore.thenComparingInt(b -> b.first));
         List<String> out = new ArrayList<>(initial.size());
         for (Block b : ordered) out.addAll(b.members);
         return out;
