@@ -135,6 +135,19 @@ without losing anything.
    **interleaved per repeat** (spreads background noise evenly), then reports median speedup.
 5. **`select --cp --tests --trace [--jfr-dir] [thresholds…]`** — the **main ship gate** (see below).
 
+### Headless Orchestration (REPL Parity)
+
+CSTO v2 supports executing REPL actions non-interactively (headless) via persistent configuration. The Orchestrator automatically loads settings from `<out>/config.properties` (default `.csto2/config.properties`), overlays any command-line flags, runs the action, and persists the updated configuration back to disk.
+
+- **`project [--dir <dir>] [--out <dir>]`** — Autodetects Maven project configuration (classpath, test list, workdir) and writes to `config.properties`.
+- **`configure [--cp ...] [--tests ...] [--out ...] ...`** — Configures specific settings in `config.properties`.
+- **`state [--out <dir>]`** — Displays persisted configuration, exclusions, and candidate settings.
+- **`exclude <classes> | --exclude <classes> [--out <dir>]`** — Excludes classes and updates persisted `exclude.txt` and `config.properties`.
+- **`approaches <toggles> | --toggle <toggles> [--out <dir>]`** — Enables/disables candidate strategies and updates `skip-candidates.txt` and `config.properties`.
+- **`pipeline [--out <dir>]`** — Runs discover -> trace -> select sequentially.
+- **`scientific [--out <dir>]`** — Runs the pipeline at repeats=10 and outputs a paired Wilcoxon signed-rank test report.
+
+
 ## Candidate-generation strategies (there is NO single optimizer)
 
 `select` is a portfolio: it builds many candidate orders from independent hypotheses, measures them
