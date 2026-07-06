@@ -2,6 +2,7 @@ package com.csto2;
 
 import com.csto2.analyze.StaticComprehension;
 import com.csto2.analyze.StaticEdges;
+import com.csto2.cli.Orchestrator;
 import com.csto2.optimize.Candidates;
 import com.csto2.optimize.OrderOptimizer;
 import com.csto2.optimize.WilcoxonSignedRank;
@@ -17,13 +18,14 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** CSTO v2 CLI. First command: static comprehension. */
 public final class Csto2 {
     public static void main(String[] args) throws Exception {
-        // Launch the interactive REPL for: no args, `repl [dir]`, `pipeline [dir]`, or a bare directory.
-        boolean replCmd = args.length > 0 && (args[0].equals("repl") || args[0].equals("pipeline"));
+        // Launch the interactive REPL for: no args, `repl [dir]`, or a bare directory.
+        boolean replCmd = args.length > 0 && args[0].equals("repl");
         boolean bareDir = args.length == 1 && java.nio.file.Files.isDirectory(java.nio.file.Paths.get(args[0]));
         if (args.length == 0 || replCmd || bareDir) {
             String dir = replCmd ? (args.length > 1 ? args[1] : null) : (bareDir ? args[0] : null);
@@ -31,17 +33,131 @@ public final class Csto2 {
             if (dir != null) repl.run(java.nio.file.Paths.get(dir)); else repl.run();
             return;
         }
-        dispatch(args[0], parse(args));
+        dispatch(args[0], parse(args), args);
     }
 
     /** Run a single subcommand with a pre-parsed flag map. Public so the REPL can drive the pipeline. */
     public static void dispatch(String cmd, Map<String, String> a) throws Exception {
+        dispatch(cmd, a, new String[0]);
+    }
+
+    public static void dispatch(String cmd, Map<String, String> a, String[] rawArgs) throws Exception {
         switch (cmd) {
             case "analyze" -> analyze(a);
             case "discover" -> discover(a);
             case "trace" -> trace(a);
             case "validate" -> validate(a);
             case "select" -> select(a);
+
+            // Orchestration subcommands (Parity with REPL)
+            case "configure" -> {
+                Orchestrator orch = new Orchestrator();
+                if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
+                orch.loadConfig();
+                orch.configure(a);
+            }
+            case "state" -> {
+                Orchestrator orch = new Orchestrator();
+                if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
+                orch.loadConfig();
+                orch.cfg.putAll(a);
+                orch.state();
+            }
+            case "exclude" -> {
+                Orchestrator orch = new Orchestrator();
+                if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
+                orch.loadConfig();
+                orch.cfg.putAll(a);
+
+                List<String> positionals = new ArrayList<>();
+                for (int i = 1; i < rawArgs.length; i++) {
+                    if (rawArgs[i].startsWith("--")) {
+                        i++; // skip value
+                    } else {
+                        positionals.add(rawArgs[i]);
+                    }
+                }
+                List<String> tokens = new ArrayList<>();
+                String val = a.get("exclude");
+                if (val != null && !val.isBlank()) {
+                    for (String tok : val.split("[,\\s]+")) {
+                        if (!tok.isEmpty()) tokens.add(tok);
+                    }
+                }
+                for (String pos : positionals) {
+                    if (!pos.isEmpty()) tokens.add(pos);
+                }
+
+                orch.exclude(tokens);
+                orch.saveConfig();
+            }
+            case "approaches" -> {
+                Orchestrator orch = new Orchestrator();
+                if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
+                orch.loadConfig();
+                orch.cfg.putAll(a);
+
+                List<String> positionals = new ArrayList<>();
+                for (int i = 1; i < rawArgs.length; i++) {
+                    if (rawArgs[i].startsWith("--")) {
+                        i++; // skip value
+                    } else {
+                        positionals.add(rawArgs[i]);
+                    }
+                }
+                List<String> toggles = new ArrayList<>();
+                String toggleVal = a.get("toggle");
+                if (toggleVal == null || toggleVal.isBlank()) {
+                    toggleVal = a.get("skip-candidates");
+                }
+                if (toggleVal != null && !toggleVal.isBlank()) {
+                    for (String tok : toggleVal.split("[,\\s]+")) {
+                        if (!tok.isEmpty()) toggles.add(tok);
+                    }
+                }
+                for (String pos : positionals) {
+                    if (!pos.isEmpty()) toggles.add(pos);
+                }
+
+                orch.approaches(toggles);
+                orch.saveConfig();
+            }
+            case "project" -> {
+                Orchestrator orch = new Orchestrator();
+                if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
+                orch.loadConfig();
+                orch.cfg.putAll(a);
+
+                String dirStr = a.get("dir");
+                Path p = dirStr == null || dirStr.isBlank()
+                        ? Paths.get(System.getProperty("user.dir"))
+                        : Paths.get(dirStr);
+
+                orch.loadProject(p, msg -> {
+                    System.out.println(msg + " [auto-yes]");
+                    return true;
+                });
+                orch.loadPersistedExclusions();
+                orch.saveConfig();
+            }
+            case "pipeline" -> {
+                Orchestrator orch = new Orchestrator();
+                if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
+                orch.loadConfig();
+                orch.cfg.putAll(a);
+
+                orch.fullPipeline();
+                orch.saveConfig();
+            }
+            case "scientific" -> {
+                Orchestrator orch = new Orchestrator();
+                if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
+                orch.loadConfig();
+                orch.cfg.putAll(a);
+
+                orch.scientific();
+                orch.saveConfig();
+            }
             default -> usage();
         }
     }
@@ -541,9 +657,33 @@ public final class Csto2 {
         System.out.println("""
                 CSTO v2
 
-                Commands:
+                Stage Commands:
                   analyze --app <classpath> [--lib <classpath>] --tests <file> [--out <dir>]
                       Static comprehension: per-test facts + candidate interaction edges.
+                  discover --cp <classpath> --tests <file> --out <file> [--workdir <dir>]
+                      Filter the test list to runnable classes.
+                  trace --cp <classpath> --tests <file> [--orders N] [--seed S] [--out <dir>]
+                      Run N random test orders through Surefire to collect execution facts.
+                  validate --cp <classpath> --tests <file> --trace <file> [--repeats R] [--out <dir>]
+                      Calibrate the slope model and measure initial vs optimized order.
+                  select --cp <classpath> --tests <file> --trace <file> [--repeats R] [--out <dir>]
+                      Measure candidate strategies and select the fastest green order.
+
+                Orchestration Commands (Parity with REPL):
+                  project [--dir <dir>] [--out <dir>]
+                      Autodetect classpath + test list + workdir from a Maven project.
+                  configure [--cp ...] [--tests ...] [--out ...] [--jvmargs ...] ...
+                      Configure and persist settings in config.properties.
+                  state [--out <dir>]
+                      Show current config, persisted exclusions, and candidate settings.
+                  exclude <classes> | --exclude <classes> [--out <dir>]
+                      Exclude test classes from the test list.
+                  approaches <toggles> | --toggle <toggles> [--out <dir>]
+                      Enable/disable candidate optimization strategies.
+                  pipeline [--out <dir>]
+                      Run the full pipeline: discover -> trace -> select.
+                  scientific [--out <dir>]
+                      Run the pipeline at repeats=10 + Wilcoxon signed-rank report.
                 """);
     }
 }
