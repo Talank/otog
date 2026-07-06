@@ -98,6 +98,7 @@ public final class Repl {
                     case "6" -> select();
                     case "7" -> validate();
                     case "8" -> fullPipeline();
+                    case "s" -> scientific();
                     case "q", "0", "quit", "exit" -> { break loop; }
                     case "" -> {}
                     default -> System.out.println("unknown choice: " + choice);
@@ -125,6 +126,7 @@ public final class Repl {
         System.out.println("  7) validate         slope-model initial-vs-optimized A/B");
         System.out.println("  --- combined ---");
         System.out.println("  8) full pipeline    discover -> trace -> select");
+        System.out.println("  s) scientific       full pipeline @ 10 repeats + Wilcoxon signed-rank test");
         System.out.println("  q) quit");
     }
 
@@ -195,6 +197,28 @@ public final class Repl {
         trace();
         select();
         System.out.println("[pipeline] done.");
+    }
+
+    /**
+     * The full pipeline run for rigor: discover -> trace -> select at 10 measurement rounds, followed
+     * by a two-sided Wilcoxon signed-rank test of each green candidate vs 'initial' (paired per round).
+     * The repeats override is one-shot — the user's configured value is restored afterward.
+     */
+    private void scientific() throws Exception {
+        System.out.println("[scientific] discover -> trace -> select (repeats=10) + Wilcoxon signed-rank");
+        String prevRepeats = cfg.get("repeats");
+        cfg.put("repeats", "10");
+        try {
+            discover();
+            trace();
+            select();
+        } finally {
+            if (prevRepeats == null) cfg.remove("repeats"); else cfg.put("repeats", prevRepeats);
+        }
+        Path measure = baseDir().resolve("select").resolve("measure.jsonl");
+        if (Files.exists(measure)) Csto2.signedRankReport(measure, "initial");
+        else System.out.println("[scientific] no measure.jsonl at " + measure + " — select produced no measurements.");
+        System.out.println("[scientific] done.");
     }
 
     // ---- exclude -------------------------------------------------------------------------------

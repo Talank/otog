@@ -4,6 +4,7 @@ import com.csto2.analyze.StaticComprehension;
 import com.csto2.analyze.StaticEdges;
 import com.csto2.optimize.Candidates;
 import com.csto2.optimize.OrderOptimizer;
+import com.csto2.optimize.WilcoxonSignedRank;
 import com.csto2.trace.OrderRunner;
 import com.csto2.surefire.SurefireOrchestrator;
 
@@ -296,6 +297,64 @@ public final class Csto2 {
         }
         System.out.printf("%n=> SHIP: %s  (%.0fms, %.1f%% faster than initial) [green]%n",
                 winner, wm, 100.0 * (base - wm) / base);
+    }
+
+    /**
+     * Extra rigor for the REPL's "scientific" pipeline: a two-sided Wilcoxon signed-rank test of each
+     * GREEN candidate vs the incumbent, pairing per-round suite totals by round index. Reads the same
+     * {@code measure.jsonl} {@link #selectReport} consumes; leaves that report's output untouched (the
+     * scientific path prints this on top). A candidate with any non-PASS run is skipped (green gate).
+     */
+    public static void signedRankReport(Path measure, String incumbent) throws Exception {
+        // roundTotal[candidate][roundIdx] = summed runtimeMs; nonPass[candidate] = total non-PASS rows.
+        Map<String, Map<Integer, Double>> roundTotal = new LinkedHashMap<>();
+        Map<String, Integer> nonPass = new LinkedHashMap<>();
+        for (String line : Files.readAllLines(measure)) {
+            line = line.trim(); if (line.isEmpty()) continue;
+            int oi = line.indexOf("\"orderId\":\""); int ri = line.indexOf("\"runtimeMs\":");
+            if (oi < 0 || ri < 0) continue;
+            String oid = line.substring(oi + 11, line.indexOf('"', oi + 11));
+            int hash = oid.indexOf('#');
+            String name = hash < 0 ? oid : oid.substring(0, hash);
+            int round = hash < 0 ? 0 : Integer.parseInt(oid.substring(hash + 1));
+            double rt = Double.parseDouble(line.substring(ri + 12, findEnd(line, ri + 12)));
+            roundTotal.computeIfAbsent(name, k -> new LinkedHashMap<>()).merge(round, rt, Double::sum);
+            int si = line.indexOf("\"status\":\"");
+            if (si >= 0 && !"PASS".equals(line.substring(si + 10, line.indexOf('"', si + 10))))
+                nonPass.merge(name, 1, Integer::sum);
+        }
+        Map<Integer, Double> baseRounds = roundTotal.get(incumbent);
+        System.out.println("\n=== WILCOXON SIGNED-RANK (paired per round, vs " + incumbent + ") ===");
+        if (baseRounds == null) { System.out.println("  no '" + incumbent + "' rounds found — cannot pair."); return; }
+        for (Map.Entry<String, Map<Integer, Double>> e : roundTotal.entrySet()) {
+            String name = e.getKey();
+            if (name.equals(incumbent)) continue;
+            if (nonPass.getOrDefault(name, 0) != 0) {
+                System.out.printf("  %-22s skipped (not green)%n", name);
+                continue;
+            }
+            // Pair only rounds both orders were measured in.
+            List<Double> ba = new ArrayList<>(), ca = new ArrayList<>();
+            for (Map.Entry<Integer, Double> re : e.getValue().entrySet()) {
+                Double bv = baseRounds.get(re.getKey());
+                if (bv != null) { ba.add(bv); ca.add(re.getValue()); }
+            }
+            if (ba.size() < 2) { System.out.printf("  %-22s too few paired rounds (%d)%n", name, ba.size()); continue; }
+            double[] a = ba.stream().mapToDouble(Double::doubleValue).toArray();
+            double[] c = ca.stream().mapToDouble(Double::doubleValue).toArray();
+            WilcoxonSignedRank w = WilcoxonSignedRank.test(a, c);
+            double medA = median(a), medC = median(c);
+            double pct = 100.0 * (medA - medC) / medA;
+            System.out.printf("  %-22s n=%d  W+=%.1f W-=%.1f  p=%.4f (%s)  median %+.1f%% vs %s  %s%n",
+                    name, w.n, w.wPlus, w.wMinus, w.pValue, w.exact ? "exact" : "approx",
+                    pct, incumbent, w.pValue < 0.05 ? "SIGNIFICANT@0.05" : "n.s.");
+        }
+    }
+
+    private static double median(double[] v) {
+        double[] s = v.clone(); Arrays.sort(s);
+        int n = s.length;
+        return n % 2 == 1 ? s[n / 2] : (s[n / 2 - 1] + s[n / 2]) / 2.0;
     }
 
     private static void report(Path measure) throws Exception {
