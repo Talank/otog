@@ -64,10 +64,16 @@ if [ -f "./mvnw" ]; then
   MVN_BIN="./mvnw"
 fi
 
+PL_ARGS=""
+if [ -n "${MODULE_DIR}" ] && [ "${MODULE_DIR}" != "." ]; then
+  PL_ARGS="-pl ${MODULE_DIR} -am"
+fi
+
 echo "Installing project dependencies locally from the root..."
 # Fix for "Unknown lifecycle phase '/root/.m2'" caused by official Maven Docker image
 export MAVEN_CONFIG=""
-${MVN_BIN} clean install -DskipTests -Dmaven.javadoc.skip=true -Dcheckstyle.skip=true -Drat.skip=true -Djacoco.skip=true
+${MVN_BIN} clean install ${PL_ARGS} -DskipTests -Dmaven.javadoc.skip=true -Dcheckstyle.skip=true -Drat.skip=true -Djacoco.skip=true ${MVN_OPTS_ARGS}
+
 
 
 
