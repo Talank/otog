@@ -44,7 +44,7 @@ RUN tar -xzf /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz -C /usr/lib/jvm/ \
 # Clone, compile, and install the custom maven surefire testorder fork
 RUN git clone https://github.com/TestingResearchIllinois/maven-surefire.git /opt/maven-surefire \
     && cd /opt/maven-surefire \
-    && mvn clean install -DskipTests -Drat.skip -Denforcer.skip -Djacoco.skip=true \
+    && JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 PATH=/usr/lib/jvm/java-11-openjdk-amd64/bin:$PATH mvn clean install -DskipTests -Drat.skip -Denforcer.skip -Djacoco.skip=true \
     && mkdir -p /opt/csto \
     && cp surefire-changing-maven-extension/target/surefire-changing-maven-extension-1.0-SNAPSHOT.jar /opt/csto/surefire-changing-maven-extension.jar \
     && rm -rf /opt/maven-surefire
