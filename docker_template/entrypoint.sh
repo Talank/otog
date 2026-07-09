@@ -64,6 +64,10 @@ if [ -f "./mvnw" ]; then
   MVN_BIN="./mvnw"
 fi
 
+echo "Installing project dependencies locally from the root..."
+${MVN_BIN} clean install -DskipTests -Dmaven.javadoc.skip=true -Dcheckstyle.skip=true -Drat.skip=true -Djacoco.skip=true
+
+
 # 4. Initialize CSTO workspace and merge config
 OUT_DIR="/workspace/.csto2"
 mkdir -p "${OUT_DIR}"
