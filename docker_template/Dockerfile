@@ -47,7 +47,7 @@ RUN cp /opt/java/openjdk/lib/security/cacerts /usr/lib/jvm/java-8-openjdk-amd64/
     && cp /opt/java/openjdk/lib/security/cacerts /usr/lib/jvm/java-17-openjdk-amd64/lib/security/cacerts
 
 # Clone, compile, and install the custom maven surefire testorder fork (only the extension submodule)
-RUN git clone https://github.com/TestingResearchIllinois/maven-surefire.git /opt/maven-surefire \
+RUN git clone https://github.com/Archonic944/maven-surefire.git /opt/maven-surefire \
     && cd /opt/maven-surefire/surefire-changing-maven-extension \
     && sed -i 's/<source>1.7<\/source>/<source>1.8<\/source>/g' pom.xml \
     && sed -i 's/<target>1.7<\/target>/<target>1.8<\/target>/g' pom.xml \
