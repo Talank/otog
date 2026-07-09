@@ -65,7 +65,10 @@ if [ -f "./mvnw" ]; then
 fi
 
 echo "Installing project dependencies locally from the root..."
+# Fix for "Unknown lifecycle phase '/root/.m2'" caused by official Maven Docker image
+export MAVEN_CONFIG=""
 ${MVN_BIN} clean install -DskipTests -Dmaven.javadoc.skip=true -Dcheckstyle.skip=true -Drat.skip=true -Djacoco.skip=true
+
 
 
 # 4. Initialize CSTO workspace and merge config
