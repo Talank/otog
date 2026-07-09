@@ -41,6 +41,11 @@ RUN tar -xzf /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz -C /usr/lib/jvm/ \
     && ln -s /usr/lib/jvm/jdk-17.0.2 /usr/lib/jvm/java-17-openjdk-amd64 \
     && rm /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz
 
+# Sync modern CA certificates to the manually installed JDKs to prevent SSL/TLS connection failures
+RUN cp /opt/java/openjdk/lib/security/cacerts /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts \
+    && cp /opt/java/openjdk/lib/security/cacerts /usr/lib/jvm/java-11-openjdk-amd64/lib/security/cacerts \
+    && cp /opt/java/openjdk/lib/security/cacerts /usr/lib/jvm/java-17-openjdk-amd64/lib/security/cacerts
+
 # Clone, compile, and install the custom maven surefire testorder fork (only the extension submodule)
 RUN git clone https://github.com/TestingResearchIllinois/maven-surefire.git /opt/maven-surefire \
     && cd /opt/maven-surefire/surefire-changing-maven-extension \
