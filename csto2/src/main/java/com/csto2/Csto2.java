@@ -217,6 +217,14 @@ public final class Csto2 {
         Path jHome = resolveJavaHome(a);
         if (jHome != null) s.setJavaHome(jHome);
         if (a.containsKey("kp-argline")) s.setKpArgline(a.get("kp-argline"));
+        if (a.containsKey("mvnopts")) {
+            String opts = a.get("mvnopts");
+            if (opts != null && !opts.isBlank()) {
+                for (String opt : opts.trim().split("\\s+")) {
+                    if (!opt.isEmpty()) s.addProp(opt);
+                }
+            }
+        }
         if (!attachAgent) {
             System.err.println("[csto2] measurement runner: no agent (clean wall-clock for A/B validation)");
             return s;

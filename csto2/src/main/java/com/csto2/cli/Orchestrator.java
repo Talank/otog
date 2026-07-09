@@ -48,6 +48,7 @@ public final class Orchestrator {
         {"repeats", "measurement rounds for select/validate (lower = faster, noisier; select default 4)"},
         {"surefire-ext", "testorder-fork extension jar (optional; auto-located from ~/.m2 when blank)"},
         {"mvn", "mvn binary/wrapper for the Surefire runner (optional; default ./mvnw or mvn)"},
+        {"mvnopts", "extra maven command-line options as ONE value, e.g. \"-Dsurefire.excludeTests=...\""},
         {"heavy-k", "robust deviations (log mean+k*stddev) above which a class counts as heavy (default 3.0)"},
         {"heavy-cap", "max fraction of the suite a heavy-outlier move may relocate (default 0.15)"},
     };
@@ -140,7 +141,7 @@ public final class Orchestrator {
         require("cp"); require("tests");
         Path outDir = baseDir().resolve("trace");
         Path traceJsonl = outDir.resolve("trace.jsonl");
-        Map<String, String> a = args("cp", "jvmargs", "java", "workdir", "orders", "seed", "surefire-ext", "mvn", "kp-argline");
+        Map<String, String> a = args("cp", "jvmargs", "java", "workdir", "orders", "seed", "surefire-ext", "mvn", "kp-argline", "mvnopts");
         a.put("tests", cfg.get("tests"));
         a.put("out", outDir.toString());
         Csto2.dispatch("trace", a);
@@ -157,7 +158,7 @@ public final class Orchestrator {
 
     public void select() throws Exception {
         require("cp"); require("tests"); requireFile("trace");
-        Map<String, String> a = args("cp", "trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "skip-candidates", "heavy-k", "heavy-cap");
+        Map<String, String> a = args("cp", "trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "mvnopts", "skip-candidates", "heavy-k", "heavy-cap");
         a.put("tests", cfg.get("tests"));
         a.put("out", baseDir().resolve("select").toString());
         Csto2.dispatch("select", a);
@@ -165,7 +166,7 @@ public final class Orchestrator {
 
     public void validate() throws Exception {
         require("cp"); require("tests"); requireFile("trace");
-        Map<String, String> a = args("cp", "trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline");
+        Map<String, String> a = args("cp", "trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "mvnopts");
         a.put("tests", cfg.get("tests"));
         a.put("out", baseDir().resolve("validate").toString());
         Csto2.dispatch("validate", a);
@@ -365,6 +366,18 @@ public final class Orchestrator {
         }
 
         Path exFile = excludeFile();
+        if (!Files.exists(exFile) && cfg.get("exclude") != null && !cfg.get("exclude").isBlank()) {
+            Set<String> excludedSet = new LinkedHashSet<>();
+            for (String s : cfg.get("exclude").split(",")) {
+                if (!s.isBlank()) excludedSet.add(s.trim());
+            }
+            if (!excludedSet.isEmpty()) {
+                Files.createDirectories(baseDir());
+                Files.write(exFile, String.join("\n", excludedSet).getBytes(StandardCharsets.UTF_8));
+                System.out.println("[persist] initialized exclude.txt from config: " + cfg.get("exclude"));
+            }
+        }
+
         String testsPath = cfg.get("tests");
         if (!Files.exists(exFile) || testsPath == null) return;
         Path testsFile = Paths.get(testsPath);
