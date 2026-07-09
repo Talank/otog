@@ -1,11 +1,38 @@
-| Project | Fastest Strategy | Initial Median Time | Naïve Median Time | Speedup Vs. Initial | Naïve Speedup Vs. Initial | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| apache/commons-csv | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | |
-| javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | module: `javaparser-core-testing`; alloc-front and pkg-alloc-front are the same speedup |
-| apache/commons-text | naive | 18185ms | 15657ms | 13.9% | 13.9% | Second best was jit-sort with 13.6%
-| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | Ran `commons-math-legacy`; Excluded 3 RNG-dependent tests (simplex optimizers) |
-| alibaba/fastjson2 | pkg-alloc-front | 22462ms | 23171ms | 1.1% | -3.2% | Ran `core`; did not run with all approaches |
-| javaparser/javaparser | alloc-sort | 22028ms | 22092ms | 11.1% | -0.3% | module: `symbol-solver-testing`; more measurement runs; alloc-front+warm-tail was close second |
+# Speedups & statistical validity
+
+Per-project `select` winners, plus a Wilcoxon signed-rank re-test of each winner against `initial`.
+The **p-value** column is a two-sided Wilcoxon signed-rank test (α = 0.05) from an *independent
+10-round paired re-measurement* of that winner vs `initial` (agent off, interleaved repeats);
+**n/a** = no test was run. A speedup that does not clear the test (**Significant? = No**) should be
+treated as noise, not a win. Remember a real optimizer win must also beat **naïve** (the fastest
+trivially-traced order), not just `initial`.
+
+| Project | Fastest Strategy | Initial Median | Naïve Median | Speedup vs Initial | Naïve Speedup vs Initial | p-value | Significant? | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| apache/commons-csv | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | 0.008 | Yes | |
+| javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | 0.006 | Yes | module: `javaparser-core-testing`; alloc-front and pkg-alloc-front are the same speedup |
+| apache/commons-text | jit-sort | 17370ms | 16031ms | 12.9% | 7.7% | 0.0020 | Yes | Corrected 2026-07-09 — old row (`naive` 13.9%) was a kill-9 truncation artifact (`naive.order`==`initial.order`). Full-suite 10-round Wilcoxon after the fork dropped `-XX:OnOutOfMemoryError=kill -9`; `alloc-sort` +12.0% (p=0.0020) close 2nd, both beat naïve. See `2026-W28/commons-text-kill9-truncation.md`. |
+| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | 1.000 | No | Ran `commons-math-legacy`; 10-round re-test showed −0.3% (did not hold). Excluded 3 RNG-dependent tests (simplex optimizers) |
+| alibaba/fastjson2 | pkg-alloc-front | 22462ms | 23171ms | 1.1% | -3.2% | 0.415 | No | Ran `core`; 10-round re-test showed −0.05% (did not hold); did not run with all approaches |
+| javaparser/javaparser | alloc-sort | 22028ms | 22092ms | 11.1% | -0.3% | 0.008 | Yes | module: `symbol-solver-testing`; more measurement runs; alloc-front+warm-tail was close second |
+
+## Statistical validation — procedure
+
+For each project, the winning strategy's `.csto2` order (regenerated from scratch via
+`discover`/`trace`/`select` where it had been deleted) was measured against `initial` for 10 fresh,
+interleaved repeats with the instrumentation agent off, and the paired per-run total wall-clock times
+were compared with a two-sided Wilcoxon signed-rank test at α = 0.05. Of the six originally reported
+wins, commons-math and fastjson2 did **not** survive the re-test; commons-csv, both javaparser modules,
+and (after the kill-9 fix) commons-text do.
+
+**Excluded tests** (failed consistently regardless of order, unrelated to ordering):
+- commons-text: `TextStringBuilderTest` — deliberately triggers `OutOfMemoryError`, which the fork's
+  `-XX:OnOutOfMemoryError=kill` flag treated as fatal. **No longer excluded** — the surefire fork now
+  drops that flag; the class runs green in-suite. See `2026-W28/commons-text-kill9-truncation.md`.
+- javaparser-symbol-solver-testing: `ReflectionInterfaceDeclarationTest`,
+  `ReflectionClassDeclarationTest`, `ReferenceTypeTest`, `JavaParserInterfaceDeclarationTest`,
+  `JavaParserEnumDeclarationTest`, `JavaParserClassDeclarationTest` — using JDK 23 instead of JDK 8
+  breaks all of these.
 
 # Logs
 
@@ -70,37 +97,35 @@
 
 => SHIP: pkg-rt-front  (10373ms, 23.3% faster than initial) [green]
 ```
-## commons-text
+
+## commons-text (corrected 2026-07-09 — kill-9 truncation fixed)
+
+10-round paired run + Wilcoxon, full 101-class suite (`TextStringBuilderTest` no longer excluded — the
+fork now drops `-XX:OnOutOfMemoryError=kill -9`). All green, all classes reported (completeness gate on).
+Root cause + fix writeup: `2026-W28/commons-text-kill9-truncation.md`. (The prior block here — `naive`
++13.9% — was a kill-9 truncation artifact and has been removed; see git history.)
 
 ```
 === CANDIDATE MEASUREMENTS ===
-  alloc-front            runs=4 median=15980ms min=15049ms max=16180ms  GREEN
-  jit-sort              runs=4 median=15719ms min=15057ms max=15884ms  GREEN
-  jfr-warmup-front       runs=4 median=17420ms min=17110ms max=18086ms  GREEN
-  initial                runs=4 median=18185ms min=17333ms max=18532ms  GREEN
-  pkg-alloc+observed-intra runs=4 median=17685ms min=17018ms max=18026ms  GREEN
-  alloc-front+warm-tail  runs=4 median=16012ms min=14738ms max=16945ms  GREEN
-  alloc-sort             runs=4 median=15772ms min=15065ms max=16024ms  GREEN
-  warm-tail              runs=4 median=16225ms min=15235ms max=16836ms  GREEN
-  pkg-alloc-front        runs=4 median=18169ms min=17479ms max=18361ms  GREEN
-  pkg-rt-front           runs=4 median=18026ms min=17424ms max=18609ms  GREEN
-  intra-warmup           runs=4 median=18354ms min=17045ms max=18599ms  GREEN
-  naive                  runs=4 median=15657ms min=15566ms max=16307ms  GREEN
+  alloc-sort             runs=10 median=15468ms min=14556ms max=17138ms  GREEN
+  initial                runs=10 median=17370ms min=16736ms max=18141ms  GREEN
+  jit-sort               runs=10 median=15131ms min=14517ms max=16096ms  GREEN
+  naive                  runs=10 median=16031ms min=15121ms max=18722ms  GREEN
 
-  alloc-front            +12.1% vs initial
-  jit-sort              +13.6% vs initial
-  jfr-warmup-front       +4.2% vs initial
-  pkg-alloc+observed-intra +2.7% vs initial
-  alloc-front+warm-tail  +11.9% vs initial
-  alloc-sort             +13.3% vs initial
-  warm-tail              +10.8% vs initial
-  pkg-alloc-front        +0.1% vs initial
-  pkg-rt-front           +0.9% vs initial
-  intra-warmup           -0.9% vs initial
-  naive                  +13.9% vs initial
+  alloc-sort             +10.9% vs initial
+  jit-sort               +12.9% vs initial
+  naive                  +7.7% vs initial
 
-=> SHIP: naive  (15657ms, 13.9% faster than initial) [green]
+=> SHIP: jit-sort  (15131ms, 12.9% faster than initial) [green]
+
+=== WILCOXON SIGNED-RANK (paired per round, vs initial) ===
+  alloc-sort   n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +12.0% vs initial  SIGNIFICANT@0.05
+  jit-sort     n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +12.9% vs initial  SIGNIFICANT@0.05
+  naive        n=10  W+=51.0 W-=4.0  p=0.0137 (exact)  median +7.7%  vs initial  SIGNIFICANT@0.05
 ```
+jit-sort and alloc-sort each beat the free `naive` baseline (jit-sort +5.6%, alloc-sort +3.5% median).
+This run restricted candidates to alloc-sort/jit-sort via `skip-candidates` (initial/naive are
+protected); a broader portfolio may find more.
 
 ## commons-math
 
@@ -133,6 +158,8 @@
 
 => SHIP: pkg-alloc-front  (16268ms, 5.4% faster than initial) [green]
 ```
+(10-round Wilcoxon re-test: pkg-alloc-front −0.3% vs initial, p=1.000 — **not significant**, the 5.6%
+did not hold.)
 
 ## fastjson2
 
@@ -153,6 +180,7 @@
 
 => SHIP: pkg-alloc-front  (22225ms, 1.1% faster than initial) [green]
 ```
+(10-round Wilcoxon re-test: pkg-alloc-front −0.05% vs initial, p=0.415 — **not significant**.)
 
 ## javaparser (symbol-solver-testing)
 
