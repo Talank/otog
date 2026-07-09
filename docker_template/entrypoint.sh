@@ -54,6 +54,9 @@ if [ -n "${JAVA_HOME_PATH}" ]; then
   echo "Exported JAVA_HOME=${JAVA_HOME}"
 fi
 
+# Workaround TLS 1.3 resumption bugs ('No PSK available') in older JDKs (e.g. 11.0.2)
+export MAVEN_OPTS="-Dhttps.protocols=TLSv1.2 -Djdk.tls.client.protocols=TLSv1.2"
+
 # Ensure correct maven binary is used
 MVN_BIN="mvn"
 if [ -f "./mvnw" ]; then
