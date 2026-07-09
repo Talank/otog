@@ -9,7 +9,7 @@
   <name>CSTO v2 - comprehension-driven test-order optimizer</name>
 
   <properties>
-    <maven.compiler.release>17</maven.compiler.release>
+    <maven.compiler.release>11</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <wala.version>1.7.2</wala.version>
   </properties>

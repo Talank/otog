@@ -114,7 +114,7 @@ public final class Csto2Listener implements TestExecutionListener {
 
     private static String className(TestIdentifier id) {
         TestSource s = id.getSource().orElse(null);
-        return s instanceof ClassSource cs ? cs.getClassName() : id.getLegacyReportingName();
+        return s instanceof ClassSource ? ((ClassSource) s).getClassName() : id.getLegacyReportingName();
     }
 
     private long[] gcSnapshot() {
@@ -130,12 +130,15 @@ public final class Csto2Listener implements TestExecutionListener {
     private long allocBytes() {
         try {
             ThreadMXBean base = ManagementFactory.getThreadMXBean();
-            if (base instanceof com.sun.management.ThreadMXBean cb && cb.isThreadAllocatedMemorySupported()) {
-                long[] ids = base.getAllThreadIds();
-                long[] bytes = cb.getThreadAllocatedBytes(ids);
-                long sum = 0;
-                for (long b : bytes) if (b > 0) sum += b;
-                return sum;
+            if (base instanceof com.sun.management.ThreadMXBean) {
+                com.sun.management.ThreadMXBean cb = (com.sun.management.ThreadMXBean) base;
+                if (cb.isThreadAllocatedMemorySupported()) {
+                    long[] ids = base.getAllThreadIds();
+                    long[] bytes = cb.getThreadAllocatedBytes(ids);
+                    long sum = 0;
+                    for (long b : bytes) if (b > 0) sum += b;
+                    return sum;
+                }
             }
         } catch (Throwable ignore) {}
         return 0;

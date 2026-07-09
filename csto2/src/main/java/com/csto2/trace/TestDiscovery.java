@@ -84,7 +84,8 @@ public final class TestDiscovery {
             Object ex = failIface.getMethod("getException").invoke(f);
             String name = (String) tidClass.getMethod("getDisplayName").invoke(tid);
             System.out.println("  * " + name);
-            if (ex instanceof Throwable t) {
+            if (ex instanceof Throwable) {
+                Throwable t = (Throwable) ex;
                 System.out.println("      " + t);
                 for (StackTraceElement e : t.getStackTrace())
                     if (!e.getClassName().contains("csto") && !e.getClassName().startsWith("org.junit")

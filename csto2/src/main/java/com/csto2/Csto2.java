@@ -43,27 +43,29 @@ public final class Csto2 {
 
     public static void dispatch(String cmd, Map<String, String> a, String[] rawArgs) throws Exception {
         switch (cmd) {
-            case "analyze" -> analyze(a);
-            case "discover" -> discover(a);
-            case "trace" -> trace(a);
-            case "validate" -> validate(a);
-            case "select" -> select(a);
+            case "analyze": analyze(a); break;
+            case "discover": discover(a); break;
+            case "trace": trace(a); break;
+            case "validate": validate(a); break;
+            case "select": select(a); break;
 
             // Orchestration subcommands (Parity with REPL)
-            case "configure" -> {
+            case "configure": {
                 Orchestrator orch = new Orchestrator();
                 if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
                 orch.loadConfig();
                 orch.configure(a);
+                break;
             }
-            case "state" -> {
+            case "state": {
                 Orchestrator orch = new Orchestrator();
                 if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
                 orch.loadConfig();
                 orch.cfg.putAll(a);
                 orch.state();
+                break;
             }
-            case "exclude" -> {
+            case "exclude": {
                 Orchestrator orch = new Orchestrator();
                 if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
                 orch.loadConfig();
@@ -90,8 +92,9 @@ public final class Csto2 {
 
                 orch.exclude(tokens);
                 orch.saveConfig();
+                break;
             }
-            case "approaches" -> {
+            case "approaches": {
                 Orchestrator orch = new Orchestrator();
                 if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
                 orch.loadConfig();
@@ -121,8 +124,9 @@ public final class Csto2 {
 
                 orch.approaches(toggles);
                 orch.saveConfig();
+                break;
             }
-            case "project" -> {
+            case "project": {
                 Orchestrator orch = new Orchestrator();
                 if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
                 orch.loadConfig();
@@ -139,8 +143,9 @@ public final class Csto2 {
                 });
                 orch.loadPersistedExclusions();
                 orch.saveConfig();
+                break;
             }
-            case "pipeline" -> {
+            case "pipeline": {
                 Orchestrator orch = new Orchestrator();
                 if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
                 orch.loadConfig();
@@ -148,8 +153,9 @@ public final class Csto2 {
 
                 orch.fullPipeline();
                 orch.saveConfig();
+                break;
             }
-            case "scientific" -> {
+            case "scientific": {
                 Orchestrator orch = new Orchestrator();
                 if (a.containsKey("out")) orch.cfg.put("out", a.get("out"));
                 orch.loadConfig();
@@ -157,8 +163,9 @@ public final class Csto2 {
 
                 orch.scientific();
                 orch.saveConfig();
+                break;
             }
-            default -> usage();
+            default: usage(); break;
         }
     }
 
@@ -599,12 +606,12 @@ public final class Csto2 {
     private static List<String> jvmArgs(Map<String, String> a) {
         String v = a.get("jvmargs");
         if (v == null || v.isBlank()) return List.of();
-        return Arrays.stream(v.trim().split("\\s+")).filter(s -> !s.isEmpty()).toList();
+        return Arrays.stream(v.trim().split("\\s+")).filter(s -> !s.isEmpty()).collect(Collectors.toList());
     }
 
     private static List<String> readTests(Path testsFile) throws Exception {
         return Files.readAllLines(testsFile).stream()
-                .map(String::trim).filter(s -> !s.isEmpty() && !s.startsWith("#")).toList();
+                .map(String::trim).filter(s -> !s.isEmpty() && !s.startsWith("#")).collect(Collectors.toList());
     }
 
     private static void analyze(Map<String, String> a) throws Exception {
@@ -613,7 +620,7 @@ public final class Csto2 {
         Path testsFile = Paths.get(req(a, "tests"));
         Path outDir = Paths.get(a.getOrDefault("out", ".csto/comprehension"));
         List<String> tests = Files.readAllLines(testsFile).stream()
-                .map(String::trim).filter(s -> !s.isEmpty() && !s.startsWith("#")).toList();
+                .map(String::trim).filter(s -> !s.isEmpty() && !s.startsWith("#")).collect(Collectors.toList());
 
         long t0 = System.nanoTime();
         System.err.println("[csto2] building class hierarchy (app + lib scope)...");
@@ -662,36 +669,36 @@ public final class Csto2 {
     }
 
     private static void usage() {
-        System.out.println("""
-                CSTO v2
-
-                Stage Commands:
-                  analyze --app <classpath> [--lib <classpath>] --tests <file> [--out <dir>]
-                      Static comprehension: per-test facts + candidate interaction edges.
-                  discover --cp <classpath> --tests <file> --out <file> [--workdir <dir>]
-                      Filter the test list to runnable classes.
-                  trace --cp <classpath> --tests <file> [--orders N] [--seed S] [--out <dir>]
-                      Run N random test orders through Surefire to collect execution facts.
-                  validate --cp <classpath> --tests <file> --trace <file> [--repeats R] [--out <dir>]
-                      Calibrate the slope model and measure initial vs optimized order.
-                  select --cp <classpath> --tests <file> --trace <file> [--repeats R] [--out <dir>]
-                      Measure candidate strategies and select the fastest green order.
-
-                Orchestration Commands (Parity with REPL):
-                  project [--dir <dir>] [--out <dir>]
-                      Autodetect classpath + test list + workdir from a Maven project.
-                  configure [--cp ...] [--tests ...] [--out ...] [--jvmargs ...] ...
-                      Configure and persist settings in config.properties.
-                  state [--out <dir>]
-                      Show current config, persisted exclusions, and candidate settings.
-                  exclude <classes> | --exclude <classes> [--out <dir>]
-                      Exclude test classes from the test list.
-                  approaches <toggles> | --toggle <toggles> [--out <dir>]
-                      Enable/disable candidate optimization strategies.
-                  pipeline [--out <dir>]
-                      Run the full pipeline: discover -> trace -> select.
-                  scientific [--out <dir>]
-                      Run the pipeline at repeats=10 + Wilcoxon signed-rank report.
-                """);
+        System.out.println(
+                "CSTO v2\n" +
+                "\n" +
+                "Stage Commands:\n" +
+                "  analyze --app <classpath> [--lib <classpath>] --tests <file> [--out <dir>]\n" +
+                "      Static comprehension: per-test facts + candidate interaction edges.\n" +
+                "  discover --cp <classpath> --tests <file> --out <file> [--workdir <dir>]\n" +
+                "      Filter the test list to runnable classes.\n" +
+                "  trace --cp <classpath> --tests <file> [--orders N] [--seed S] [--out <dir>]\n" +
+                "      Run N random test orders through Surefire to collect execution facts.\n" +
+                "  validate --cp <classpath> --tests <file> --trace <file> [--repeats R] [--out <dir>]\n" +
+                "      Calibrate the slope model and measure initial vs optimized order.\n" +
+                "  select --cp <classpath> --tests <file> --trace <file> [--repeats R] [--out <dir>]\n" +
+                "      Measure candidate strategies and select the fastest green order.\n" +
+                "\n" +
+                "Orchestration Commands (Parity with REPL):\n" +
+                "  project [--dir <dir>] [--out <dir>]\n" +
+                "      Autodetect classpath + test list + workdir from a Maven project.\n" +
+                "  configure [--cp ...] [--tests ...] [--out ...] [--jvmargs ...] ...\n" +
+                "      Configure and persist settings in config.properties.\n" +
+                "  state [--out <dir>]\n" +
+                "      Show current config, persisted exclusions, and candidate settings.\n" +
+                "  exclude <classes> | --exclude <classes> [--out <dir>]\n" +
+                "      Exclude test classes from the test list.\n" +
+                "  approaches <toggles> | --toggle <toggles> [--out <dir>]\n" +
+                "      Enable/disable candidate optimization strategies.\n" +
+                "  pipeline [--out <dir>]\n" +
+                "      Run the full pipeline: discover -> trace -> select.\n" +
+                "  scientific [--out <dir>]\n" +
+                "      Run the pipeline at repeats=10 + Wilcoxon signed-rank report.\n"
+        );
     }
 }

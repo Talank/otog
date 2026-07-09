@@ -72,11 +72,11 @@ final class MiniJson {
             if (c == '\\') {
                 char e = s.charAt(i++);
                 switch (e) {
-                    case 'n' -> sb.append('\n');
-                    case 't' -> sb.append('\t');
-                    case 'r' -> sb.append('\r');
-                    case 'u' -> { sb.append((char) Integer.parseInt(s.substring(i, i + 4), 16)); i += 4; }
-                    default -> sb.append(e);
+                    case 'n': sb.append('\n'); break;
+                    case 't': sb.append('\t'); break;
+                    case 'r': sb.append('\r'); break;
+                    case 'u': sb.append((char) Integer.parseInt(s.substring(i, i + 4), 16)); i += 4; break;
+                    default: sb.append(e); break;
                 }
             } else sb.append(c);
         }

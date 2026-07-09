@@ -167,10 +167,11 @@ public final class Candidates {
                 for (String t : members) {
                     Stat st = stats.get(t);
                     if (st == null) continue;
-                    s += switch (signal) {
-                        case ALLOC -> st.allocMB;
-                        case RUNTIME -> st.medRt;
-                    };
+                    if (signal == Signal.ALLOC) {
+                        s += st.allocMB;
+                    } else if (signal == Signal.RUNTIME) {
+                        s += st.medRt;
+                    }
                 }
                 return s;
             }

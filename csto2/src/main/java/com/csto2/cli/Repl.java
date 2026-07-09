@@ -53,21 +53,21 @@ public final class Repl {
             choice = choice.trim().toLowerCase();
             try {
                 switch (choice) {
-                    case "1" -> configure();
-                    case "2" -> orchestrator.state();
-                    case "e" -> exclude();
-                    case "a" -> approaches();
-                    case "p" -> project();
-                    case "3" -> orchestrator.discover();
-                    case "4" -> orchestrator.analyze();
-                    case "5" -> orchestrator.trace();
-                    case "6" -> orchestrator.select();
-                    case "7" -> orchestrator.validate();
-                    case "8" -> orchestrator.fullPipeline();
-                    case "s" -> orchestrator.scientific();
-                    case "q", "0", "quit", "exit" -> { break loop; }
-                    case "" -> {}
-                    default -> System.out.println("unknown choice: " + choice);
+                    case "1": configure(); break;
+                    case "2": orchestrator.state(); break;
+                    case "e": exclude(); break;
+                    case "a": approaches(); break;
+                    case "p": project(); break;
+                    case "3": orchestrator.discover(); break;
+                    case "4": orchestrator.analyze(); break;
+                    case "5": orchestrator.trace(); break;
+                    case "6": orchestrator.select(); break;
+                    case "7": orchestrator.validate(); break;
+                    case "8": orchestrator.fullPipeline(); break;
+                    case "s": orchestrator.scientific(); break;
+                    case "q": case "0": case "quit": case "exit": break loop;
+                    case "": break;
+                    default: System.out.println("unknown choice: " + choice); break;
                 }
             } catch (Throwable t) {
                 System.out.println("[error] " + choice + " failed: " + t);
