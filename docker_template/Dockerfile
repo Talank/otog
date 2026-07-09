@@ -41,12 +41,14 @@ RUN tar -xzf /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz -C /usr/lib/jvm/ \
     && ln -s /usr/lib/jvm/jdk-17.0.2 /usr/lib/jvm/java-17-openjdk-amd64 \
     && rm /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz
 
-# Clone, compile, and install the custom maven surefire testorder fork
+# Clone, compile, and install the custom maven surefire testorder fork (only the extension submodule)
 RUN git clone https://github.com/TestingResearchIllinois/maven-surefire.git /opt/maven-surefire \
-    && cd /opt/maven-surefire \
-    && JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 PATH=/usr/lib/jvm/java-11-openjdk-amd64/bin:$PATH mvn clean install -DskipTests -Drat.skip -Denforcer.skip -Djacoco.skip=true \
+    && cd /opt/maven-surefire/surefire-changing-maven-extension \
+    && sed -i 's/<source>1.7<\/source>/<source>1.8<\/source>/g' pom.xml \
+    && sed -i 's/<target>1.7<\/target>/<target>1.8<\/target>/g' pom.xml \
+    && mvn clean package -DskipTests \
     && mkdir -p /opt/csto \
-    && cp surefire-changing-maven-extension/target/surefire-changing-maven-extension-1.0-SNAPSHOT.jar /opt/csto/surefire-changing-maven-extension.jar \
+    && cp target/surefire-changing-maven-extension-1.0-SNAPSHOT.jar /opt/csto/surefire-changing-maven-extension.jar \
     && rm -rf /opt/maven-surefire
 
 # Copy built CSTO jars and configs
