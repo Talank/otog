@@ -28,10 +28,11 @@ echo "Starting CSTO Pipeline for Config ID: ${CONFIG_ID}"
 echo "============================================="
 
 # 1. Parse metadata from the config file
-REPO_URL=$(grep "^repo_url\s*=" "${CONFIG_FILE}" | cut -d'=' -f2- | xargs)
-COMMIT_SHA=$(grep "^commit_sha\s*=" "${CONFIG_FILE}" | cut -d'=' -f2- | xargs)
-MODULE_DIR=$(grep "^module_dir\s*=" "${CONFIG_FILE}" | cut -d'=' -f2- | xargs)
-JAVA_HOME_PATH=$(grep "^java\s*=" "${CONFIG_FILE}" | cut -d'=' -f2- | xargs)
+REPO_URL=$(grep "^repo_url\s*=" "${CONFIG_FILE}" | cut -d'=' -f2- | tr -d '\r' | xargs)
+COMMIT_SHA=$(grep "^commit_sha\s*=" "${CONFIG_FILE}" | cut -d'=' -f2- | tr -d '\r' | xargs)
+MODULE_DIR=$(grep "^module_dir\s*=" "${CONFIG_FILE}" | cut -d'=' -f2- | tr -d '\r' | xargs)
+JAVA_HOME_PATH=$(grep "^java\s*=" "${CONFIG_FILE}" | cut -d'=' -f2- | tr -d '\r' | xargs)
+MVN_OPTS_ARGS=$(grep "^mvnopts\s*=" "${CONFIG_FILE}" | cut -d'=' -f2- | tr -d '\r' | xargs || echo "")
 
 echo "Repository: ${REPO_URL}"
 echo "Commit:     ${COMMIT_SHA}"
@@ -72,7 +73,9 @@ fi
 echo "Installing project dependencies locally from the root..."
 # Fix for "Unknown lifecycle phase '/root/.m2'" caused by official Maven Docker image
 export MAVEN_CONFIG=""
+echo "Running: ${MVN_BIN} clean install ${PL_ARGS} -DskipTests -Dmaven.javadoc.skip=true -Dcheckstyle.skip=true -Drat.skip=true -Djacoco.skip=true ${MVN_OPTS_ARGS}"
 ${MVN_BIN} clean install ${PL_ARGS} -DskipTests -Dmaven.javadoc.skip=true -Dcheckstyle.skip=true -Drat.skip=true -Djacoco.skip=true ${MVN_OPTS_ARGS}
+
 
 
 
