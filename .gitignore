@@ -9,3 +9,6 @@ greedy/summarized_data/
 random_test_order_generation_ML/
 results_error_v50
 /csto2/target
+/tool
+/docker_template/deps/
+

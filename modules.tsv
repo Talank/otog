@@ -1,0 +1,11 @@
+id	slug	module	sha_v0	total_ci_time	run_id	total_classes
+1683	javaparser/javaparser	javaparser-symbol-solver-testing	89be4db7a134acdd58fd708763f3dc78b1939234	7390.048	15797809717	284
+3320	apache/curator	curator-recipes	57cf5135aa7cf2e5e37f3147b3d702f06b15ccfc	7179.903	15814529693	53
+3323	apache/curator	curator-framework	57cf5135aa7cf2e5e37f3147b3d702f06b15ccfc	2751.888	15814529693	34
+33	netty/netty	handler	57bea3bea22717639ba200432c81b23154e4bbd9	2074.889	15693775904	67
+3613	apache/paimon	paimon-core	ff2b49cb1b34168f8c4b6d978fcdff0cc3076358	1313.271	15908658267	226
+1685	javaparser/javaparser	javaparser-core-testing	89be4db7a134acdd58fd708763f3dc78b1939234	1208.517	15797809717	238
+20	netty/netty	transport-native-epoll	57bea3bea22717639ba200432c81b23154e4bbd9	724.729	15693775904	73
+29	netty/netty	transport	57bea3bea22717639ba200432c81b23154e4bbd9	63.322	15693775904	46
+1778	spring-projects/spring-ai	models/spring-ai-openai	694bb50be5825bb2d91f3ce0291020d9aadcb780	682.786	15784055384	25
+1305	AsyncHttpClient/async-http-client	client	eeec3349d367ee0409acc5a63cc8d25f568e5539	713.314	15716047350	93
