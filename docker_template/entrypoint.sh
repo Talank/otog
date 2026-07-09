@@ -95,6 +95,14 @@ echo "out = ${OUT_DIR}" >> "${OUT_DIR}/config.properties"
 echo "Running CSTO Project Setup..."
 java -jar /opt/csto/csto2.jar project --dir "${REPO_PATH}/${MODULE_DIR}" --out "${OUT_DIR}"
 
+if [ -n "${CSTO_DISCOVER_JAVA:-}" ]; then
+  sed -i "s#^java[[:space:]]*=.*#java = ${CSTO_DISCOVER_JAVA}#" "${OUT_DIR}/config.properties"
+  echo "Discover JVM: ${CSTO_DISCOVER_JAVA} (override)"
+else
+  sed -i "s#^java[[:space:]]*=.*#java =#" "${OUT_DIR}/config.properties"
+  echo "Discover JVM: csto2's own runtime (java.home)"
+fi
+
 # 6. Run csto2 scientific pipeline (runs discover -> trace -> select)
 echo "Running CSTO Scientific Pipeline (repeats=10 + Wilcoxon signed-rank rank test)..."
 java -jar /opt/csto/csto2.jar scientific --out "${OUT_DIR}"
