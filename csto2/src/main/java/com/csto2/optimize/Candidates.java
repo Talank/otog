@@ -45,6 +45,10 @@ public final class Candidates {
         for (String l : Files.readAllLines(tracePath)) {
             l = l.trim(); if (l.isEmpty()) continue;
             Map<String, Object> r = MiniJson.parseObject(l);
+            // Skip non-PASS rows (FAIL/MISSING sentinels from a crashed fork): their runtimeMs is 0 or
+            // meaningless and would poison the per-class slope/median the candidate strategies fit.
+            Object st = r.get("status");
+            if (st != null && !"PASS".equals(st)) continue;
             String t = (String) r.get("test");
             double pos = ((Number) r.get("position")).doubleValue();
             double rt = ((Number) r.get("runtimeMs")).doubleValue();
@@ -223,6 +227,11 @@ public final class Candidates {
         for (String l : Files.readAllLines(tracePath)) {
             l = l.trim(); if (l.isEmpty()) continue;
             Map<String, Object> r = MiniJson.parseObject(l);
+            // Skip non-PASS rows so a crashed order's MISSING sentinels neither add to its total nor count
+            // toward coverage below -- otherwise the sentinel carries the class name and would make an
+            // incomplete order look fully-covered, letting the OOM-truncated run win as "naive".
+            Object st = r.get("status");
+            if (st != null && !"PASS".equals(st)) continue;
             String oid = (String) r.get("orderId");
             total.merge(oid, ((Number) r.get("runtimeMs")).doubleValue(), Double::sum);
             orderRows.computeIfAbsent(oid, k -> new ArrayList<>())

@@ -35,9 +35,7 @@ public final class Orchestrator {
 
     /** Config keys offered by the 'configure' screen, with a one-line hint each. */
     public static final String[][] CONFIG_KEYS = {
-        {"cp", "target test+runtime classpath (discover/trace/select/validate)"},
-        {"app", "app classes classpath (analyze only)"},
-        {"lib", "library classpath, optional (analyze only)"},
+        {"cp", "target test+runtime classpath (discover/trace/select)"},
         {"tests", "file of fully-qualified test class names, one per line"},
         {"out", "base output dir (default .csto2)"},
         {"jvmargs", "extra child-JVM args as ONE value, e.g. \"--add-opens ... -Dfoo=bar\""},
@@ -45,7 +43,7 @@ public final class Orchestrator {
         {"workdir", "child-JVM working dir if tests use relative resource paths (optional)"},
         {"orders", "trace: number of orders to run (default 6)"},
         {"seed", "trace: shuffle seed (default 1)"},
-        {"repeats", "measurement rounds for select/validate (lower = faster, noisier; select default 4)"},
+        {"repeats", "measurement rounds for select (lower = faster, noisier; select default 4)"},
         {"surefire-ext", "testorder-fork extension jar (optional; auto-located from ~/.m2 when blank)"},
         {"mvn", "mvn binary/wrapper for the Surefire runner (optional; default ./mvnw or mvn)"},
         {"mvnopts", "extra maven command-line options as ONE value, e.g. \"-Dsurefire.excludeTests=...\""},
@@ -125,17 +123,6 @@ public final class Orchestrator {
         loadPersistedExclusions();   // re-apply persisted test-class exclusions to the fresh list
     }
 
-    public void analyze() throws Exception {
-        require("app"); require("tests");
-        Path outDir = baseDir().resolve("comprehension");
-        Map<String, String> a = args("app", "lib");
-        a.put("tests", cfg.get("tests"));
-        a.put("out", outDir.toString());
-        Csto2.dispatch("analyze", a);
-        Path facts = outDir.resolve("static-facts.jsonl");
-        cfg.put("facts", facts.toString());
-        System.out.println("[wired] facts -> " + facts);
-    }
 
     public void trace() throws Exception {
         require("cp"); require("tests");
@@ -164,13 +151,6 @@ public final class Orchestrator {
         Csto2.dispatch("select", a);
     }
 
-    public void validate() throws Exception {
-        require("cp"); require("tests"); requireFile("trace");
-        Map<String, String> a = args("cp", "trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "mvnopts");
-        a.put("tests", cfg.get("tests"));
-        a.put("out", baseDir().resolve("validate").toString());
-        Csto2.dispatch("validate", a);
-    }
 
     public void fullPipeline() throws Exception {
         System.out.println("[pipeline] discover -> trace -> select");

@@ -192,6 +192,19 @@ and **greenness** (any non-PASS status across runs disqualifies it). Ship rule: 
 **fully-green** candidate, and only if it beats `initial` by **>1% margin** — otherwise ship
 `initial`. A regression or a flaky order can never win.
 
+**Fail early (per candidate).** `SurefireOrchestrator.runOrder` throws `OrderFailedException` the
+instant an order is not fully green — any FAIL/TIMEOUT class, or a crashed/incomplete fork (a class
+that produced **no** Surefire report at all, e.g. an OOM-killed JVM). `select` catches it and
+**immediately drops that entire strategy** from all remaining rounds and from the report (printed
+under `=== EXCLUDED ===`), rather than measuring a doomed candidate to completion or crediting its
+truncated (fewer-classes) total as a fake speedup. The one exception is the incumbent: if **`initial`**
+itself is not green the whole run **aborts** (non-zero exit, clear message) — the suite must be fully
+green before csto2 can optimize it (a red baseline invalidates every speedup). Phases without a
+portfolio to fall back on (`trace`, `validate`) simply propagate the failure and abort. Belt-and-braces
+behind this: `runOrder` still writes a `status:"MISSING"` sentinel row per missing class, and
+`selectReport`/`signedRankReport` independently disqualify any run that covered fewer than the full
+class union — so even a hand-edited/older `measure.jsonl` can't ship a partial run as a win.
+
 ## Data artifacts & schemas
 
 - `trace.jsonl` / measure files: `orderId, position, test, runtimeMs, status, failures, testsFound`

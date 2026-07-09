@@ -116,12 +116,47 @@ public final class SurefireOrchestrator implements OrderRunner {
 
         Map<String, Integer> position = readPositions(orderFile);
         List<Map<String, Object>> rows = parseReports(reportsDir, orderId, position);
+        // Coverage guard. A class listed in the order but with NO Surefire report row means the fork died
+        // mid-run before that class produced its TEST-*.xml (OOM/crash/BUILD FAILURE -- exactly the
+        // commons-text `-XX:OnOutOfMemoryError=kill -9` case). Left as a silent omission it would shrink the
+        // summed runtime into a fake speedup AND pass the green gate (no non-PASS row exists to disqualify
+        // it). Emit an explicit non-PASS sentinel per missing class so the failure is visible everywhere
+        // downstream and the green gate throws the order out instead of shipping a crash as a win.
+        java.util.Set<String> reported = new java.util.HashSet<>();
+        for (Map<String, Object> r : rows) reported.add((String) r.get("test"));
+        int missing = 0;
+        for (Map.Entry<String, Integer> pe : position.entrySet()) {
+            if (reported.contains(pe.getKey())) continue;
+            missing++;
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("orderId", orderId);
+            row.put("position", pe.getValue());
+            row.put("test", pe.getKey());
+            row.put("runtimeMs", 0);
+            row.put("status", "MISSING");   // non-PASS: disqualifies the order at the green gate
+            row.put("failures", 1);
+            row.put("testsFound", 0);
+            rows.add(row);
+        }
+        if (missing > 0 || code != 0)
+            System.err.println("[csto2] order " + orderId + " INCOMPLETE: mvn exit=" + code
+                    + ", " + missing + " of " + position.size() + " classes produced no report"
+                    + " (fork crashed/OOM mid-run) -- flagged non-green");
         if (agentFacts != null) mergeAgentFacts(rows, agentFacts);
         if (traceOut.getParent() != null) Files.createDirectories(traceOut.getParent());
         StringBuilder sb = new StringBuilder();
         for (Map<String, Object> r : rows) sb.append(Json.write(r)).append('\n');
         Files.write(traceOut, sb.toString().getBytes(StandardCharsets.UTF_8),
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        // Fail early: the moment an order is not fully green -- any FAIL/TIMEOUT/MISSING class, or a
+        // crashed fork (non-zero mvn exit) -- signal it so the caller drops this order/strategy entirely
+        // instead of measuring it to completion or crediting a truncated total as a speedup. Rows are
+        // already written above, so the failure remains inspectable in the trace/measure file.
+        List<String> failed = new ArrayList<>();
+        for (Map<String, Object> r : rows)
+            if (!"PASS".equals(r.get("status"))) failed.add((String) r.get("test"));
+        if (!failed.isEmpty() || code != 0)
+            throw new OrderFailedException(orderId, failed, code);
         return code;
     }
 

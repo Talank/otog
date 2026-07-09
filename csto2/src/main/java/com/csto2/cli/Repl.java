@@ -59,10 +59,8 @@ public final class Repl {
                     case "a": approaches(); break;
                     case "p": project(); break;
                     case "3": orchestrator.discover(); break;
-                    case "4": orchestrator.analyze(); break;
                     case "5": orchestrator.trace(); break;
                     case "6": orchestrator.select(); break;
-                    case "7": orchestrator.validate(); break;
                     case "8": orchestrator.fullPipeline(); break;
                     case "s": orchestrator.scientific(); break;
                     case "q": case "0": case "quit": case "exit": break loop;
@@ -86,10 +84,9 @@ public final class Repl {
         System.out.println("  p) project          autodetect cp + tests + workdir from a Maven project");
         System.out.println("  --- stages ---");
         System.out.println("  3) discover         filter the test list to runnable classes");
-        System.out.println("  4) analyze          static comprehension (WALA) -> static-facts");
         System.out.println("  5) trace            run N orders (with JFR) -> trace.jsonl");
         System.out.println("  6) select           green-gated candidate selection -> ship order");
-        System.out.println("  7) validate         slope-model initial-vs-optimized A/B");
+
         System.out.println("  --- combined ---");
         System.out.println("  8) full pipeline    discover -> trace -> select");
         System.out.println("  s) scientific       full pipeline @ 10 repeats + Wilcoxon signed-rank test");

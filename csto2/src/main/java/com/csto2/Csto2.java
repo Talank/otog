@@ -1,10 +1,7 @@
 package com.csto2;
 
-import com.csto2.analyze.StaticComprehension;
-import com.csto2.analyze.StaticEdges;
 import com.csto2.cli.Orchestrator;
 import com.csto2.optimize.Candidates;
-import com.csto2.optimize.OrderOptimizer;
 import com.csto2.optimize.WilcoxonSignedRank;
 import com.csto2.trace.OrderRunner;
 import com.csto2.surefire.SurefireOrchestrator;
@@ -33,7 +30,21 @@ public final class Csto2 {
             if (dir != null) repl.run(java.nio.file.Paths.get(dir)); else repl.run();
             return;
         }
-        dispatch(args[0], parse(args), args);
+        try {
+            dispatch(args[0], parse(args), args);
+        } catch (Exception e) {
+            // Fail early: a test failed during measurement (thrown directly, or wrapped -- e.g. the
+            // baseline-not-green abort). Print which order/classes and exit non-zero instead of dumping a
+            // stack trace. Any other exception (bad flags, missing files) keeps its normal stack trace.
+            boolean failEarly = false;
+            for (Throwable t = e; t != null; t = t.getCause())
+                if (t instanceof com.csto2.surefire.OrderFailedException) { failEarly = true; break; }
+            if (!failEarly) throw e;
+            System.err.println("[csto2] FAILED EARLY: " + e.getMessage()
+                    + "\n[csto2] a test must never fail during measurement -- make the suite green "
+                    + "(fix or exclude the failing test) before re-running.");
+            System.exit(1);
+        }
     }
 
     /** Run a single subcommand with a pre-parsed flag map. Public so the REPL can drive the pipeline. */
@@ -43,10 +54,8 @@ public final class Csto2 {
 
     public static void dispatch(String cmd, Map<String, String> a, String[] rawArgs) throws Exception {
         switch (cmd) {
-            case "analyze": analyze(a); break;
             case "discover": discover(a); break;
             case "trace": trace(a); break;
-            case "validate": validate(a); break;
             case "select": select(a); break;
 
             // Orchestration subcommands (Parity with REPL)
@@ -281,41 +290,6 @@ public final class Csto2 {
         System.err.printf("[csto2] traced %d orders in %.1fs -> %s%n", orders, (System.nanoTime() - t0) / 1e9, traceOut);
     }
 
-    private static void validate(Map<String, String> a) throws Exception {
-        String cp = filterClasspath(req(a, "cp"));
-        Path testsFile = Paths.get(req(a, "tests"));
-        Path tracePath = Paths.get(req(a, "trace"));     // existing trace.jsonl for calibration
-        int repeats = Integer.parseInt(a.getOrDefault("repeats", "5"));
-        Path outDir = Paths.get(a.getOrDefault("out", ".csto2/validate"));
-        List<String> tests = readTests(testsFile);
-        Path self = Paths.get(Csto2.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        Files.createDirectories(outDir);
-
-        OrderOptimizer.Model model = OrderOptimizer.calibrate(tracePath);
-        List<String> initial = new ArrayList<>(tests);
-        List<String> optimized = OrderOptimizer.optimize(model, tests);
-        OrderOptimizer.writeReport(model, initial, optimized, outDir.resolve("optimization.json"));
-        Path initialFile = outDir.resolve("initial.order");
-        Path optFile = outDir.resolve("optimized.order");
-        Files.write(initialFile, String.join("\n", initial).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        Files.write(optFile, String.join("\n", optimized).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        System.err.println("[csto2] front class chosen: " + optimized.get(0));
-        System.err.printf("[csto2] predicted: initial=%.0fms optimized=%.0fms%n",
-                model.predict(initial), model.predict(optimized));
-
-        Path measure = outDir.resolve("measure.jsonl");
-        Files.deleteIfExists(measure);
-        // Validate promising orders with NO agent: the instrumentation/JFR overhead perturbs the
-        // wall-clock we are comparing. report() only reads runtimeMs, so agent facts aren't needed.
-        OrderRunner orch = makeRunner(a, cp, outDir, self, false);
-        // Interleave repeats to spread background-load noise evenly across both orders.
-        for (int r = 0; r < repeats; r++) {
-            orch.runOrder(initialFile, "initial#" + r, measure);
-            orch.runOrder(optFile, "optimized#" + r, measure);
-            System.err.println("[csto2] measured repeat " + (r + 1) + "/" + repeats);
-        }
-        report(measure);
-    }
 
     private static void select(Map<String, String> a) throws Exception {
         String cp = filterClasspath(req(a, "cp"));
@@ -366,24 +340,66 @@ public final class Csto2 {
         // Seeded shuffle keeps it reproducible while decorrelating slot from candidate.
         List<String> names = new ArrayList<>(cands.keySet());
         java.util.Random shufRnd = new java.util.Random(20240625L);
+        // Fail early per candidate: the instant a strategy's order shows ANY test failure (red test or a
+        // crashed/incomplete fork), drop that entire strategy from all remaining rounds and from the
+        // report. 'initial' is the incumbent we fall back to and must be green -- if IT fails the suite
+        // itself is red, so we abort with a clear diagnostic (make the suite green first).
+        Map<String, String> excluded = new LinkedHashMap<>(); // strategy -> reason it was dropped
         for (int r = 0; r < repeats; r++) {
             java.util.Collections.shuffle(names, shufRnd);
-            for (String name : names)
-                validate.runOrder(outDir.resolve(name + ".order"), name + "#" + r, measure);
+            for (String name : names) {
+                if (excluded.containsKey(name)) continue;
+                try {
+                    validate.runOrder(outDir.resolve(name + ".order"), name + "#" + r, measure);
+                } catch (com.csto2.surefire.OrderFailedException ex) {
+                    String reason = ex.failedClasses().isEmpty()
+                            ? "fork crashed (mvn exit " + ex.exitCode() + ")"
+                            : "failing test(s): " + String.join(", ", ex.failedClasses());
+                    if ("initial".equals(name))
+                        throw new IllegalStateException("baseline 'initial' is not green in round " + r
+                                + " -- " + reason + ". The suite must be fully green before csto2 can "
+                                + "optimize it (fix or exclude the failing test, then re-run).", ex);
+                    excluded.put(name, reason);
+                    System.err.println("[csto2] EXCLUDED candidate " + name + " (round " + r + "): "
+                            + reason + " -- dropped from all further measurement and reporting");
+                }
+            }
             System.err.println("[csto2] measured round " + (r + 1) + "/" + repeats);
         }
-        selectReport(measure, "initial");
+        java.io.PrintStream originalOut = System.out;
+        Path reportFile = outDir.resolve("select-report.log");
+        try (java.io.OutputStream fos = Files.newOutputStream(reportFile)) {
+            TeePrintStream tee = new TeePrintStream(fos, originalOut);
+            System.setOut(tee);
+            selectReport(measure, "initial", excluded.keySet());
+            if (!excluded.isEmpty()) {
+                System.out.println("\n=== EXCLUDED (failed early, not measured/reported) ===");
+                for (Map.Entry<String, String> e : excluded.entrySet())
+                    System.out.printf("  %-22s %s%n", e.getKey(), e.getValue());
+            }
+        } finally {
+            System.setOut(originalOut);
+        }
     }
 
     /** Report medians + greenness per candidate; SHIP only a fully-green order (incumbent fallback). */
     private static void selectReport(Path measure, String incumbent) throws Exception {
+        selectReport(measure, incumbent, java.util.Set.of());
+    }
+
+    private static void selectReport(Path measure, String incumbent, java.util.Set<String> excluded) throws Exception {
         Map<String, List<Double>> perRun = new LinkedHashMap<>();
-        Map<String, Integer> runNonPass = new LinkedHashMap<>(); // per run id: count of FAIL/TIMEOUT
+        Map<String, Integer> runNonPass = new LinkedHashMap<>(); // per run id: count of FAIL/TIMEOUT/MISSING
+        Map<String, java.util.Set<String>> runTests = new LinkedHashMap<>(); // per run id: classes that reported
+        java.util.Set<String> allTests = new java.util.LinkedHashSet<>();    // full suite = union across all runs
         for (String line : Files.readAllLines(measure)) {
             line = line.trim(); if (line.isEmpty()) continue;
             int oi = line.indexOf("\"orderId\":\""); int ri = line.indexOf("\"runtimeMs\":");
             if (oi < 0 || ri < 0) continue;
             String oid = line.substring(oi + 11, line.indexOf('"', oi + 11));
+            // Skip rows belonging to a strategy that already failed early -- it is excluded from the report.
+            String cand = oid.contains("#") ? oid.substring(0, oid.indexOf('#')) : oid;
+            if (excluded.contains(cand)) continue;
             double rt = Double.parseDouble(line.substring(ri + 12, findEnd(line, ri + 12)));
             perRun.computeIfAbsent(oid, k -> new ArrayList<>()).add(rt);
             int si = line.indexOf("\"status\":\"");
@@ -391,6 +407,20 @@ public final class Csto2 {
                 String st = line.substring(si + 10, line.indexOf('"', si + 10));
                 if (!"PASS".equals(st)) runNonPass.merge(oid, 1, Integer::sum);
             }
+            int ti = line.indexOf("\"test\":\"");
+            if (ti >= 0) {
+                String test = line.substring(ti + 8, line.indexOf('"', ti + 8));
+                runTests.computeIfAbsent(oid, k -> new java.util.HashSet<>()).add(test);
+                allTests.add(test);
+            }
+        }
+        // Coverage guard (defense in depth over runOrder's MISSING sentinels): even if measure.jsonl came
+        // from an older/hand-edited run without sentinels, any run that reported fewer than the full suite
+        // of classes crashed mid-way -- its summed runtime is a partial (fake) total. Count each missing
+        // class as non-green so the incomplete candidate is disqualified rather than shipped as a speedup.
+        for (Map.Entry<String, java.util.Set<String>> e : runTests.entrySet()) {
+            int miss = allTests.size() - e.getValue().size();
+            if (miss > 0) runNonPass.merge(e.getKey(), miss, Integer::sum);
         }
         Map<String, List<Double>> perCand = new LinkedHashMap<>();
         Map<String, Integer> candNonPass = new LinkedHashMap<>(); // total non-pass across all runs
@@ -437,48 +467,72 @@ public final class Csto2 {
      * scientific path prints this on top). A candidate with any non-PASS run is skipped (green gate).
      */
     public static void signedRankReport(Path measure, String incumbent) throws Exception {
-        // roundTotal[candidate][roundIdx] = summed runtimeMs; nonPass[candidate] = total non-PASS rows.
-        Map<String, Map<Integer, Double>> roundTotal = new LinkedHashMap<>();
-        Map<String, Integer> nonPass = new LinkedHashMap<>();
-        for (String line : Files.readAllLines(measure)) {
-            line = line.trim(); if (line.isEmpty()) continue;
-            int oi = line.indexOf("\"orderId\":\""); int ri = line.indexOf("\"runtimeMs\":");
-            if (oi < 0 || ri < 0) continue;
-            String oid = line.substring(oi + 11, line.indexOf('"', oi + 11));
-            int hash = oid.indexOf('#');
-            String name = hash < 0 ? oid : oid.substring(0, hash);
-            int round = hash < 0 ? 0 : Integer.parseInt(oid.substring(hash + 1));
-            double rt = Double.parseDouble(line.substring(ri + 12, findEnd(line, ri + 12)));
-            roundTotal.computeIfAbsent(name, k -> new LinkedHashMap<>()).merge(round, rt, Double::sum);
-            int si = line.indexOf("\"status\":\"");
-            if (si >= 0 && !"PASS".equals(line.substring(si + 10, line.indexOf('"', si + 10))))
-                nonPass.merge(name, 1, Integer::sum);
-        }
-        Map<Integer, Double> baseRounds = roundTotal.get(incumbent);
-        System.out.println("\n=== WILCOXON SIGNED-RANK (paired per round, vs " + incumbent + ") ===");
-        if (baseRounds == null) { System.out.println("  no '" + incumbent + "' rounds found — cannot pair."); return; }
-        for (Map.Entry<String, Map<Integer, Double>> e : roundTotal.entrySet()) {
-            String name = e.getKey();
-            if (name.equals(incumbent)) continue;
-            if (nonPass.getOrDefault(name, 0) != 0) {
-                System.out.printf("  %-22s skipped (not green)%n", name);
-                continue;
+        java.io.PrintStream originalOut = System.out;
+        Path reportFile = measure.getParent().resolve("select-report.log");
+        try (java.io.OutputStream fos = Files.newOutputStream(reportFile, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND)) {
+            TeePrintStream tee = new TeePrintStream(fos, originalOut);
+            System.setOut(tee);
+
+            // roundTotal[candidate][roundIdx] = summed runtimeMs; nonPass[candidate] = total non-PASS rows.
+            Map<String, Map<Integer, Double>> roundTotal = new LinkedHashMap<>();
+            Map<String, Integer> nonPass = new LinkedHashMap<>();
+            Map<String, java.util.Set<String>> runTests = new LinkedHashMap<>(); // orderId -> classes reported
+            java.util.Set<String> allTests = new java.util.LinkedHashSet<>();     // full suite = union across runs
+            Map<String, String> oidName = new LinkedHashMap<>();
+            for (String line : Files.readAllLines(measure)) {
+                line = line.trim(); if (line.isEmpty()) continue;
+                int oi = line.indexOf("\"orderId\":\""); int ri = line.indexOf("\"runtimeMs\":");
+                if (oi < 0 || ri < 0) continue;
+                String oid = line.substring(oi + 11, line.indexOf('"', oi + 11));
+                int hash = oid.indexOf('#');
+                String name = hash < 0 ? oid : oid.substring(0, hash);
+                oidName.put(oid, name);
+                int round = hash < 0 ? 0 : Integer.parseInt(oid.substring(hash + 1));
+                double rt = Double.parseDouble(line.substring(ri + 12, findEnd(line, ri + 12)));
+                roundTotal.computeIfAbsent(name, k -> new LinkedHashMap<>()).merge(round, rt, Double::sum);
+                int si = line.indexOf("\"status\":\"");
+                if (si >= 0 && !"PASS".equals(line.substring(si + 10, line.indexOf('"', si + 10))))
+                    nonPass.merge(name, 1, Integer::sum);
+                int ti = line.indexOf("\"test\":\"");
+                if (ti >= 0) {
+                    String test = line.substring(ti + 8, line.indexOf('"', ti + 8));
+                    runTests.computeIfAbsent(oid, k -> new java.util.HashSet<>()).add(test);
+                    allTests.add(test);
+                }
             }
-            // Pair only rounds both orders were measured in.
-            List<Double> ba = new ArrayList<>(), ca = new ArrayList<>();
-            for (Map.Entry<Integer, Double> re : e.getValue().entrySet()) {
-                Double bv = baseRounds.get(re.getKey());
-                if (bv != null) { ba.add(bv); ca.add(re.getValue()); }
+            // Coverage guard: a run reporting fewer than the full suite crashed mid-way (partial total) -- treat
+            // the candidate as non-green so it is skipped, never credited with a fake per-round speedup.
+            for (Map.Entry<String, java.util.Set<String>> e : runTests.entrySet())
+                if (allTests.size() - e.getValue().size() > 0)
+                    nonPass.merge(oidName.get(e.getKey()), allTests.size() - e.getValue().size(), Integer::sum);
+            Map<Integer, Double> baseRounds = roundTotal.get(incumbent);
+            System.out.println("\n=== WILCOXON SIGNED-RANK (paired per round, vs " + incumbent + ") ===");
+            if (baseRounds == null) { System.out.println("  no '" + incumbent + "' rounds found — cannot pair."); return; }
+            for (Map.Entry<String, Map<Integer, Double>> e : roundTotal.entrySet()) {
+                String name = e.getKey();
+                if (name.equals(incumbent)) continue;
+                if (nonPass.getOrDefault(name, 0) != 0) {
+                    System.out.printf("  %-22s skipped (not green)%n", name);
+                    continue;
+                }
+                // Pair only rounds both orders were measured in.
+                List<Double> ba = new ArrayList<>(), ca = new ArrayList<>();
+                for (Map.Entry<Integer, Double> re : e.getValue().entrySet()) {
+                    Double bv = baseRounds.get(re.getKey());
+                    if (bv != null) { ba.add(bv); ca.add(re.getValue()); }
+                }
+                if (ba.size() < 2) { System.out.printf("  %-22s too few paired rounds (%d)%n", name, ba.size()); continue; }
+                double[] a = ba.stream().mapToDouble(Double::doubleValue).toArray();
+                double[] c = ca.stream().mapToDouble(Double::doubleValue).toArray();
+                WilcoxonSignedRank w = WilcoxonSignedRank.test(a, c);
+                double medA = median(a), medC = median(c);
+                double pct = 100.0 * (medA - medC) / medA;
+                System.out.printf("  %-22s n=%d  W+=%.1f W-=%.1f  p=%.4f (%s)  median %+.1f%% vs %s  %s%n",
+                        name, w.n, w.wPlus, w.wMinus, w.pValue, w.exact ? "exact" : "approx",
+                        pct, incumbent, w.pValue < 0.05 ? "SIGNIFICANT@0.05" : "n.s.");
             }
-            if (ba.size() < 2) { System.out.printf("  %-22s too few paired rounds (%d)%n", name, ba.size()); continue; }
-            double[] a = ba.stream().mapToDouble(Double::doubleValue).toArray();
-            double[] c = ca.stream().mapToDouble(Double::doubleValue).toArray();
-            WilcoxonSignedRank w = WilcoxonSignedRank.test(a, c);
-            double medA = median(a), medC = median(c);
-            double pct = 100.0 * (medA - medC) / medA;
-            System.out.printf("  %-22s n=%d  W+=%.1f W-=%.1f  p=%.4f (%s)  median %+.1f%% vs %s  %s%n",
-                    name, w.n, w.wPlus, w.wMinus, w.pValue, w.exact ? "exact" : "approx",
-                    pct, incumbent, w.pValue < 0.05 ? "SIGNIFICANT@0.05" : "n.s.");
+        } finally {
+            System.setOut(originalOut);
         }
     }
 
@@ -488,48 +542,6 @@ public final class Csto2 {
         return n % 2 == 1 ? s[n / 2] : (s[n / 2 - 1] + s[n / 2]) / 2.0;
     }
 
-    private static void report(Path measure) throws Exception {
-        Map<String, List<Double>> totals = new LinkedHashMap<>();
-        for (String line : Files.readAllLines(measure)) {
-            line = line.trim();
-            if (line.isEmpty()) continue;
-            // orderId like "initial#3"; sum runtimeMs per run.
-            int oi = line.indexOf("\"orderId\":\"");
-            int ri = line.indexOf("\"runtimeMs\":");
-            if (oi < 0 || ri < 0) continue;
-            String oid = line.substring(oi + 11, line.indexOf('"', oi + 11));
-            String group = oid.contains("#") ? oid.substring(0, oid.indexOf('#')) : oid;
-            String run = oid;
-            double rt = Double.parseDouble(line.substring(ri + 12, findEnd(line, ri + 12)));
-            totals.computeIfAbsent(group + "|" + run, k -> new ArrayList<>()).add(rt);
-        }
-        // sum per run, then aggregate per group
-        Map<String, List<Double>> perGroup = new LinkedHashMap<>();
-        for (Map.Entry<String, List<Double>> e : totals.entrySet()) {
-            String group = e.getKey().substring(0, e.getKey().indexOf('|'));
-            double sum = e.getValue().stream().mapToDouble(Double::doubleValue).sum();
-            perGroup.computeIfAbsent(group, k -> new ArrayList<>()).add(sum);
-        }
-        System.out.println("\n=== MEASURED VALIDATION ===");
-        Map<String, Double> medians = new LinkedHashMap<>();
-        for (Map.Entry<String, List<Double>> e : perGroup.entrySet()) {
-            List<Double> v = new ArrayList<>(e.getValue());
-            v.sort(Double::compare);
-            double med = v.get(v.size() / 2);
-            System.out.printf("  %-10s runs=%d  median=%.0fms  min=%.0fms  max=%.0fms%n",
-                    e.getKey(), v.size(), med, v.get(0), v.get(v.size() - 1));
-            medians.put(e.getKey(), med);
-        }
-        Double initialMed = medians.get("initial");
-        if (initialMed != null) {
-            for (Map.Entry<String, Double> e : medians.entrySet()) {
-                if (e.getKey().equals("initial")) continue;
-                double pct = 100.0 * (initialMed - e.getValue()) / initialMed;
-                System.out.printf("  => %-10s is %.1f%% %s than initial (median)%n",
-                        e.getKey(), Math.abs(pct), pct >= 0 ? "FASTER" : "SLOWER");
-            }
-        }
-    }
 
     private static int findEnd(String s, int from) {
         int i = from;
@@ -614,32 +626,7 @@ public final class Csto2 {
                 .map(String::trim).filter(s -> !s.isEmpty() && !s.startsWith("#")).collect(Collectors.toList());
     }
 
-    private static void analyze(Map<String, String> a) throws Exception {
-        String app = req(a, "app");
-        String lib = a.getOrDefault("lib", "");
-        Path testsFile = Paths.get(req(a, "tests"));
-        Path outDir = Paths.get(a.getOrDefault("out", ".csto/comprehension"));
-        List<String> tests = Files.readAllLines(testsFile).stream()
-                .map(String::trim).filter(s -> !s.isEmpty() && !s.startsWith("#")).collect(Collectors.toList());
 
-        long t0 = System.nanoTime();
-        System.err.println("[csto2] building class hierarchy (app + lib scope)...");
-        StaticComprehension sc = StaticComprehension.build(app, lib);
-        System.err.printf("[csto2] CHA built in %.1fs; analyzing %d test classes%n",
-                (System.nanoTime() - t0) / 1e9, tests.size());
-
-        Path factsOut = outDir.resolve("static-facts.jsonl");
-        List<StaticComprehension.TestFacts> facts = sc.analyzeAll(tests, factsOut);
-        Map<String, Object> edges = StaticEdges.derive(facts);
-        Path edgesOut = outDir.resolve("static-edges.json");
-        StaticEdges.write(edges, edgesOut);
-
-        @SuppressWarnings("unchecked")
-        Map<String, Object> counts = (Map<String, Object>) edges.get("counts");
-        System.err.printf("[csto2] done in %.1fs%n", (System.nanoTime() - t0) / 1e9);
-        System.err.println("[csto2] facts -> " + factsOut);
-        System.err.println("[csto2] edges -> " + edgesOut + "  " + counts);
-    }
 
     private static Map<String, String> parse(String[] args) {
         Map<String, String> m = new LinkedHashMap<>();
@@ -673,14 +660,10 @@ public final class Csto2 {
                 "CSTO v2\n" +
                 "\n" +
                 "Stage Commands:\n" +
-                "  analyze --app <classpath> [--lib <classpath>] --tests <file> [--out <dir>]\n" +
-                "      Static comprehension: per-test facts + candidate interaction edges.\n" +
                 "  discover --cp <classpath> --tests <file> --out <file> [--workdir <dir>]\n" +
                 "      Filter the test list to runnable classes.\n" +
                 "  trace --cp <classpath> --tests <file> [--orders N] [--seed S] [--out <dir>]\n" +
                 "      Run N random test orders through Surefire to collect execution facts.\n" +
-                "  validate --cp <classpath> --tests <file> --trace <file> [--repeats R] [--out <dir>]\n" +
-                "      Calibrate the slope model and measure initial vs optimized order.\n" +
                 "  select --cp <classpath> --tests <file> --trace <file> [--repeats R] [--out <dir>]\n" +
                 "      Measure candidate strategies and select the fastest green order.\n" +
                 "\n" +
@@ -700,5 +683,28 @@ public final class Csto2 {
                 "  scientific [--out <dir>]\n" +
                 "      Run the pipeline at repeats=10 + Wilcoxon signed-rank report.\n"
         );
+    }
+
+    private static class TeePrintStream extends java.io.PrintStream {
+        private final java.io.PrintStream branch;
+        public TeePrintStream(java.io.OutputStream out, java.io.PrintStream branch) {
+            super(out, true);
+            this.branch = branch;
+        }
+        @Override
+        public void write(int b) {
+            super.write(b);
+            branch.write(b);
+        }
+        @Override
+        public void write(byte[] buf, int off, int len) {
+            super.write(buf, off, len);
+            branch.write(buf, off, len);
+        }
+        @Override
+        public void flush() {
+            super.flush();
+            branch.flush();
+        }
     }
 }

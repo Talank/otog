@@ -11,16 +11,9 @@
   <properties>
     <maven.compiler.release>11</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <wala.version>1.7.2</wala.version>
   </properties>
 
   <dependencies>
-    <!-- Static analysis. Pulls com.ibm.wala.util + com.ibm.wala.shrike transitively. -->
-    <dependency>
-      <groupId>com.ibm.wala</groupId>
-      <artifactId>com.ibm.wala.core</artifactId>
-      <version>${wala.version}</version>
-    </dependency>
     <!-- For the Surefire instrumentation agent's JUnit Platform TestExecutionListener. Provided:
          the target test JVM already has junit-platform-launcher on its classpath at runtime. -->
     <dependency>
