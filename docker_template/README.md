@@ -16,13 +16,21 @@ The following modules from `modules.tsv` are pre-configured:
 * **`1778`** - spring-projects/spring-ai (models/spring-ai-openai) [Uses Java 17]
 * **`1305`** - AsyncHttpClient/async-http-client (client)
 
+## Prerequisites: Dependencies
+
+Because the required JDKs and CSTO binaries exceed GitHub's file size limits, you must download the dependencies archive (`deps.tgz`) before building the Docker image.
+
+Ensure that the `docker_template/deps/` directory is populated with the JDK tarballs (8, 11, 17) and CSTO JARs (otog/csto2) before proceeding.
+
 ## Building the Docker Image
 
 From the repository root directory, run:
 
 ```bash
-docker build -t csto2-runner docker_template
+docker build --platform linux/amd64 -t csto2-runner docker_template
 ```
+
+*(Note: `--platform linux/amd64` is required because the bundled JDK tarballs are compiled for x64 architecture. If you are on an Apple Silicon Mac, Docker will automatically use Rosetta 2 to build and run the image.)*
 
 This will build a self-contained image with all required JDKs (8, 11, 17, 21), native development dependencies, the custom surefire testorder extension, and pre-packaged CSTO binaries and configurations.
 
