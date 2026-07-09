@@ -51,7 +51,6 @@ git checkout --detach "${COMMIT_SHA}"
 # 3. Setup Java environment
 if [ -n "${JAVA_HOME_PATH}" ]; then
   export JAVA_HOME="${JAVA_HOME_PATH}"
-  export PATH="${JAVA_HOME}/bin:${PATH}"
   echo "Exported JAVA_HOME=${JAVA_HOME}"
 fi
 
