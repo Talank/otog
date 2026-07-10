@@ -73,8 +73,18 @@ public final class SurefireOrchestrator implements OrderRunner {
             if (i != 0) Collections.shuffle(order, rnd);
             Path orderFile = orderDir.resolve(id + ".order");
             Files.write(orderFile, String.join("\n", order).getBytes(StandardCharsets.UTF_8));
-            int code = runOrder(orderFile, id, traceOut);
-            System.err.printf("[surefire] trace %-12s exit=%d%n", id, code);
+            // Trace is calibration: measure EVERY order even if some classes fail. runOrder writes its
+            // rows (incl. FAIL/MISSING) before it signals, so the failing classes stay in trace.jsonl for
+            // the trace-gate to collect and exclude from candidate orders. Never abort the trace here.
+            try {
+                int code = runOrder(orderFile, id, traceOut);
+                System.err.printf("[surefire] trace %-12s exit=%d (green)%n", id, code);
+            } catch (OrderFailedException ex) {
+                String what = ex.failedClasses().isEmpty()
+                        ? "fork crashed (mvn exit " + ex.exitCode() + ")"
+                        : ex.failedClasses().size() + " class(es) not green";
+                System.err.printf("[surefire] trace %-12s NON-GREEN: %s%n", id, what);
+            }
         }
         return traceOut;
     }

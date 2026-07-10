@@ -340,11 +340,14 @@ public final class Csto2 {
         // Seeded shuffle keeps it reproducible while decorrelating slot from candidate.
         List<String> names = new ArrayList<>(cands.keySet());
         java.util.Random shufRnd = new java.util.Random(20240625L);
-        // Fail early per candidate: the instant a strategy's order shows ANY test failure (red test or a
-        // crashed/incomplete fork), drop that entire strategy from all remaining rounds and from the
-        // report. 'initial' is the incumbent we fall back to and must be green -- if IT fails the suite
-        // itself is red, so we abort with a clear diagnostic (make the suite green first).
-        Map<String, String> excluded = new LinkedHashMap<>(); // strategy -> reason it was dropped
+        // No pre-run green gate. Every class that failed during trace is already excluded from every
+        // candidate order (trace-gate), so a failure HERE is a NEW failure -- a class that passed in trace
+        // but fails now. We cannot retroactively drop it from the OTHER candidates' already-measured rounds
+        // without a whole extra measurement pass, so a fair paired comparison of this candidate is
+        // impossible. We therefore SCRAP the whole candidate (all rounds), not just this run -- including
+        // 'initial': every surviving candidate must have the SAME round count for a fair paired test, and a
+        // test that failed once is very likely to fail again, so its remaining rounds would be scrapped too.
+        Map<String, String> excluded = new LinkedHashMap<>(); // strategy -> reason it was scrapped
         for (int r = 0; r < repeats; r++) {
             java.util.Collections.shuffle(names, shufRnd);
             for (String name : names) {
@@ -354,17 +357,29 @@ public final class Csto2 {
                 } catch (com.csto2.surefire.OrderFailedException ex) {
                     String reason = ex.failedClasses().isEmpty()
                             ? "fork crashed (mvn exit " + ex.exitCode() + ")"
-                            : "failing test(s): " + String.join(", ", ex.failedClasses());
-                    if ("initial".equals(name))
-                        throw new IllegalStateException("baseline 'initial' is not green in round " + r
-                                + " -- " + reason + ". The suite must be fully green before csto2 can "
-                                + "optimize it (fix or exclude the failing test, then re-run).", ex);
+                            : "new failure - " + String.join(", ", ex.failedClasses());
                     excluded.put(name, reason);
-                    System.err.println("[csto2] EXCLUDED candidate " + name + " (round " + r + "): "
-                            + reason + " -- dropped from all further measurement and reporting");
+                    System.err.println("[csto2] SCRAPPED candidate " + name + " (round " + r + "): " + reason
+                            + " -- not seen in trace; whole candidate dropped from all rounds and the report"
+                            + ("initial".equals(name) ? " (this was the baseline)" : ""));
                 }
             }
             System.err.println("[csto2] measured round " + (r + 1) + "/" + repeats);
+        }
+        // Physically purge every scrapped candidate's rows from measure.jsonl so no report can credit its
+        // partial (unequal-round) data. Reports then see only clean, equal-round candidates.
+        if (!excluded.isEmpty()) {
+            List<String> keep = new ArrayList<>();
+            for (String line : Files.readAllLines(measure)) {
+                int oi = line.indexOf("\"orderId\":\"");
+                if (oi < 0) { keep.add(line); continue; }
+                String oid = line.substring(oi + 11, line.indexOf('"', oi + 11));
+                String nm = oid.contains("#") ? oid.substring(0, oid.indexOf('#')) : oid;
+                if (!excluded.containsKey(nm)) keep.add(line);
+            }
+            Files.write(measure, String.join("\n", keep).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            System.err.println("[csto2] scrapped " + excluded.size() + " candidate(s) for new failures: "
+                    + String.join(", ", excluded.keySet()));
         }
         java.io.PrintStream originalOut = System.out;
         Path reportFile = outDir.resolve("select-report.log");
@@ -442,6 +457,11 @@ public final class Csto2 {
                     np == 0 ? "GREEN" : ("NOT-GREEN (" + np + " non-pass)"));
         }
         double base = med.getOrDefault(incumbent, Double.NaN);
+        if (Double.isNaN(base)) {
+            System.out.println("\n=> baseline '" + incumbent + "' was scrapped for a new failure during select"
+                    + " -- no green baseline to rank against; nothing shipped.");
+            return;
+        }
         // Ship only a fully-green candidate, fastest, with a >1% margin over incumbent to deviate.
         String winner = incumbent; double wm = base;
         for (Map.Entry<String, Double> e : med.entrySet()) {

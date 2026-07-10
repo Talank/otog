@@ -36,23 +36,52 @@ csto2 is deliberately stricter: it requires an **all-green baseline** and aborts
 that green gate is what makes a shipped speedup trustworthy (a fast order that silently dropped or
 broke tests is not a win). So the same tests the tool happily timed, csto2 refuses to measure.
 
-## What we did
+## What we did — the automatic gate (revised after researcher feedback)
 
-Green-gate, and **exclude** the 3 infra-dependent classes for `3613` (in `3613.properties`). csto2
-then optimizes the ~210 genuinely-green classes. This is consistent with csto2's design and arguably
-*more* valid than the paper's numbers, which included broken tests — at the cost of measuring a subset,
-so paimon results are **not apples-to-apples** with the prior work's paimon numbers.
+The first cut was a strict green gate + **manual** per-project excludes (add the 3 classes to
+`3613.properties`). A fellow researcher pushed back on the strict gate, so we replaced the
+manual/strict approach with an **automatic two-stage gate** — no per-project exclude curation:
+
+1. **Trace-gate (before select).** The trace phase now runs all 6 orders even if some classes fail
+   (calibration, not a pass/fail decision). Any class that is non-PASS in **any** of those orders is
+   collected and **excluded from every candidate order** in select — so all candidates are compared on
+   the same all-green class set. This auto-caught paimon's 3 infra classes; no `exclude =` line needed.
+2. **Scrap on new failure (during select).** If a class that passed in trace **newly fails** in some
+   candidate's order during select, we **scrap that whole candidate** (all rounds) and purge its rows
+   from `measure.jsonl`. We do *not* try to retro-exclude the class from the other candidates'
+   already-measured rounds — that would need a whole extra measurement pass, which is exactly what we're
+   avoiding. This includes `initial`: if the baseline newly fails, it's scrapped and the run reports "no
+   baseline to rank against" rather than aborting.
+
+**Why scrap the whole candidate, not just the failing round** (researcher's call): every surviving
+candidate must have the **same round count** for a fair paired (Wilcoxon) comparison, and **a test that
+failed once is very likely to fail again**, so its remaining rounds would be scrapped anyway. Keeping a
+candidate with fewer rounds would bias the paired test.
+
+**Granularity:** exclusion is **whole-class**, not per-method — csto2 orders and measures whole test
+classes (per-class Surefire reports), so a class with one failing method is dropped whole. Per-method
+exclusion would need surefire `excludedTests` plumbing and per-method measurement; not done.
+
+**Reporting:** the end-of-run report prints an `=== EXCLUSIONS SUMMARY ===` with **how many classes
+were excluded** and the split (pre-configured vs auto-excluded during trace), and every failing/scrapped
+class is logged to stdout **as it happens** — so if a flood of tests is failing early you can see it and
+stop the run before the long select phase.
+
+This measures a subset when tests are excluded, so results are **not apples-to-apples** with the prior
+work's numbers (which included broken tests) — but the count of exclusions is always reported.
 
 ## Open question (unresolved)
 
-Excluding tests to satisfy the green gate might not be the best call. It's only a few tests here, but
-it means we optimize a slightly different suite than the one that "officially" defines the project, and
-the line between "legitimately infra-dependent" and "inconveniently failing" is a judgment call each
-time. I still think **green-gating is the right default** — an untrustworthy baseline poisons every
-speedup — so unless someone has a better idea, the working policy is: **manually exclude the tests that
-don't work in our environment**, documented per subject, rather than relax the gate.
+Excluding tests still might not be the best call. It's only a few tests here, but we then optimize a
+slightly different suite than the one that "officially" defines the project, and the line between
+"legitimately infra-dependent" and "inconveniently failing" is a per-case judgment. I still think
+**gating is the right default** — an untrustworthy baseline poisons every speedup — so unless someone
+has a better idea, the working policy is: **automatically exclude tests that fail in our environment
+(trace-gate), scrap candidates that newly fail, and always report the exclusion count.**
 
 Alternatives considered and why not (yet):
-- *Relax the gate to match the prior work* — no; it's the whole basis of csto2's trustworthiness.
+- *No gate at all (match the prior work)* — no; a shipped order that silently broke/dropped tests isn't
+  a real win. The gate is the basis of csto2's trustworthiness.
 - *Make the tests actually pass* — add Parquet/Avro to the classpath (maybe feasible), but
-  Testcontainers needs Docker-in-Docker, which isn't practical in this image.
+  Testcontainers needs Docker-in-Docker, which isn't practical in this image (they'd pass on the real
+  ubuntu-latest runner, which has Docker).

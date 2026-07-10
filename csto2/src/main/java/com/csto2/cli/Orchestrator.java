@@ -33,6 +33,10 @@ public final class Orchestrator {
     /** Shared flag values, keyed exactly like the CLI flags (cp, app, lib, tests, jvmargs, ...). */
     public final Map<String, String> cfg = new LinkedHashMap<>();
 
+    // Exclusion accounting for the end-of-run summary.
+    private int lastConfigExcluded = 0;  // classes excluded via config / persisted exclude.txt before trace
+    private int lastTraceExcluded = 0;   // classes auto-excluded after failing during the trace phase
+
     /** Config keys offered by the 'configure' screen, with a one-line hint each. */
     public static final String[][] CONFIG_KEYS = {
         {"cp", "target test+runtime classpath (discover/trace/select)"},
@@ -140,7 +144,60 @@ public final class Orchestrator {
         }
         cfg.put("trace", traceJsonl.toString());
         System.out.println("[wired] trace -> " + cfg.get("trace"));
-        warnNonGreen(traceJsonl);
+        lastConfigExcluded = countExcludeFile();   // config/persisted exclusions applied before trace
+        excludeTraceFailures(traceJsonl);
+    }
+
+    /** Count of test classes currently in {@code exclude.txt} (0 if none). */
+    private int countExcludeFile() throws IOException {
+        Path ex = excludeFile();
+        if (!Files.exists(ex)) return 0;
+        int n = 0;
+        for (String l : Files.readAllLines(ex)) if (!l.trim().isEmpty()) n++;
+        return n;
+    }
+
+    /**
+     * Trace-gate: drop every class that was non-PASS in ANY of the trace orders from the candidate suite.
+     * We no longer require a fully-green baseline — instead we exclude tests that demonstrably fail so all
+     * candidate orders are compared on the same all-green class set. Logged loudly and early (before the
+     * long select phase) so a flood of failures is obvious and the run can be stopped.
+     */
+    private int excludeTraceFailures(Path traceJsonl) throws IOException {
+        Set<String> failed = new LinkedHashSet<>();
+        for (String line : Files.readAllLines(traceJsonl)) {
+            String status = strField(line, "status");
+            String test = strField(line, "test");
+            if (test == null || status == null || "PASS".equals(status)) continue;
+            int hash = test.indexOf('#');
+            failed.add(hash < 0 ? test : test.substring(0, hash));
+        }
+        if (failed.isEmpty()) {
+            System.out.println("[trace-gate] all classes green across all trace orders — nothing excluded.");
+            return 0;
+        }
+        Path testsFile = Paths.get(cfg.get("tests"));
+        List<String> kept = new ArrayList<>();
+        for (String line : Files.readAllLines(testsFile)) {
+            String t = line.trim();
+            if (t.isEmpty()) continue;
+            int hash = t.indexOf('#');
+            if (!failed.contains(hash < 0 ? t : t.substring(0, hash))) kept.add(t);
+        }
+        Files.write(testsFile, String.join("\n", kept).getBytes(StandardCharsets.UTF_8));
+
+        Set<String> all = new LinkedHashSet<>();
+        if (Files.exists(excludeFile()))
+            for (String l : Files.readAllLines(excludeFile())) { String t = l.trim(); if (!t.isEmpty()) all.add(t); }
+        all.addAll(failed);
+        saveExclusions(all);
+        cfg.put("exclude", String.join(",", all));
+
+        System.out.println("[trace-gate] " + failed.size() + " class(es) FAILED at least once during the trace "
+                + "orders -> excluded from ALL candidate orders (" + kept.size() + " classes remain):");
+        for (String f : failed) System.out.println("    - " + simple(f));
+        lastTraceExcluded = failed.size();
+        return failed.size();
     }
 
     public void select() throws Exception {
@@ -171,6 +228,12 @@ public final class Orchestrator {
         } finally {
             if (prevRepeats == null) cfg.remove("repeats"); else cfg.put("repeats", prevRepeats);
         }
+        int totalExcluded = countExcludeFile();
+        System.out.println("\n=== EXCLUSIONS SUMMARY ===");
+        System.out.println("  " + totalExcluded + " test class(es) excluded from optimization: "
+                + lastConfigExcluded + " pre-configured + " + lastTraceExcluded
+                + " auto-excluded after failing during trace.");
+
         Path measure = baseDir().resolve("select").resolve("measure.jsonl");
         if (Files.exists(measure)) Csto2.signedRankReport(measure, "initial");
         else System.out.println("[scientific] no measure.jsonl at " + measure + " — select produced no measurements.");
