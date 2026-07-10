@@ -46,10 +46,14 @@ RUN cp /opt/java/openjdk/lib/security/cacerts /usr/lib/jvm/java-8-openjdk-amd64/
     && cp /opt/java/openjdk/lib/security/cacerts /usr/lib/jvm/java-11-openjdk-amd64/lib/security/cacerts \
     && cp /opt/java/openjdk/lib/security/cacerts /usr/lib/jvm/java-17-openjdk-amd64/lib/security/cacerts
 
-# Install the testorder fork: plugin + common (M8, forced at runtime) plus the extension.
+# Install the testorder fork. Build the FULL reactor (not just common+plugin) so ALL
+# Surefire providers land in ~/.m2 -- surefire-junit-platform (JUnit 5), surefire-junit4/47
+# (JUnit 4), surefire-testng. The M8 plugin resolves the matching provider at runtime, and
+# a JUnit-5 project (e.g. paimon) fails to even start Surefire without it. Mirrors the prior
+# researcher's setup (tool/helpers.sh: `mvn install -DskipTests -Drat.skip -Denforcer.skip`).
 RUN git clone --branch modifiedRunOrder-ext https://github.com/Archonic944/maven-surefire.git /opt/maven-surefire \
     && cd /opt/maven-surefire \
-    && mvn install -pl maven-surefire-common,maven-surefire-plugin -am -DskipTests -Drat.skip -Denforcer.skip \
+    && mvn install -DskipTests -Drat.skip -Denforcer.skip \
     && cd surefire-changing-maven-extension \
     && mvn clean package -DskipTests \
     && mkdir -p /opt/csto \

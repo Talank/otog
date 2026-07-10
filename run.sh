@@ -82,7 +82,10 @@ RUN_ARGS=(
   --cpus="$CPUS"
   --memory="$MEM"
   --memory-swap="$MEM"
-  "${JAVA_ENV[@]}"
+)
+# Append JAVA_ENV only if set (bash 3.2 errors on empty-array expansion under `set -u`).
+[ "${#JAVA_ENV[@]}" -gt 0 ] && RUN_ARGS+=( "${JAVA_ENV[@]}" )
+RUN_ARGS+=(
   -v "$(pwd)/${OUT_DIR}:/workspace/.csto2"
   "$IMAGE" "$CONFIG_ID"
 )

@@ -95,6 +95,12 @@ echo "out = ${OUT_DIR}" >> "${OUT_DIR}/config.properties"
 echo "Running CSTO Project Setup..."
 java -jar /opt/csto/csto2.jar project --dir "${REPO_PATH}/${MODULE_DIR}" --out "${OUT_DIR}"
 
+# 5b. Pin the discover helper to a modern JVM.
+# csto2 is compiled for Java 11; the config's `java` (used ONLY by the reflection-only
+# discover helper) can be older (e.g. Java 8 for paimon), which can't load csto2's classes.
+# Discovery uses Class.forName(initialize=false), so it's JVM-agnostic and safe to run on
+# any modern JDK. Blank `java` -> csto2 falls back to its own runtime (java.home). Measurement
+# is untouched: it runs through Maven under the project's JAVA_HOME set above.
 if [ -n "${CSTO_DISCOVER_JAVA:-}" ]; then
   sed -i "s#^java[[:space:]]*=.*#java = ${CSTO_DISCOVER_JAVA}#" "${OUT_DIR}/config.properties"
   echo "Discover JVM: ${CSTO_DISCOVER_JAVA} (override)"

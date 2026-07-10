@@ -49,7 +49,7 @@ public final class Csto2Agent {
 
     private static Map<String, String> parse(String args) {
         Map<String, String> m = new HashMap<>();
-        if (args == null || args.isBlank()) return m;
+        if (args == null || args.trim().isEmpty()) return m;  // Java 8 safe (agent runs in the project fork)
         for (String kv : args.split(",")) {
             int i = kv.indexOf('=');
             if (i > 0) m.put(kv.substring(0, i).trim(), kv.substring(i + 1).trim());

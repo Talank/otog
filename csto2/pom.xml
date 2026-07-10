@@ -32,6 +32,45 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.14.0</version>
         <configuration><release>${maven.compiler.release}</release></configuration>
+        <!-- The agent jar is injected into the target project's Surefire fork, which runs on the
+             project's OWN JDK (as old as Java 8, e.g. paimon). Compile just the agent's classes at
+             release 8 (bytecode 52) into a SEPARATE dir (agent-classes) so they load on any JVM >= 8.
+             Separate dir avoids the staleness skip you get recompiling into the release-11 output. -->
+        <executions>
+          <execution>
+            <id>agent-java8</id>
+            <phase>process-classes</phase>
+            <goals><goal>compile</goal></goals>
+            <configuration>
+              <release>8</release>
+              <outputDirectory>${project.build.directory}/agent-classes</outputDirectory>
+              <includes>
+                <include>com/csto2/agent/**</include>
+                <include>com/csto2/util/Json.java</include>
+              </includes>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Copy the listener's ServiceLoader file next to the release-8 agent classes so the
+           agent jar (built from agent-classes) contains it. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>agent-resources</id>
+            <phase>process-classes</phase>
+            <goals><goal>copy-resources</goal></goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/agent-classes</outputDirectory>
+              <resources>
+                <resource><directory>src/main/resources</directory></resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -67,12 +106,8 @@
             <goals><goal>jar</goal></goals>
             <configuration>
               <classifier>agent</classifier>
-              <includes>
-                <include>com/csto2/agent/**</include>
-                <include>com/csto2/trace/JfrProbe*.class</include>
-                <include>com/csto2/util/Json*.class</include>
-                <include>META-INF/services/**</include>
-              </includes>
+              <!-- Built from the release-8 output so the injected agent loads on Java 8+ projects. -->
+              <classesDirectory>${project.build.directory}/agent-classes</classesDirectory>
               <archive>
                 <manifest><addDefaultImplementationEntries>false</addDefaultImplementationEntries></manifest>
                 <manifestEntries>
