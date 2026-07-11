@@ -365,8 +365,46 @@ public final class Csto2 {
                 }
             }
             System.err.println("[csto2] measured round " + (r + 1) + "/" + repeats);
+
+            // After the first run (round 0), select top 3 candidates (excluding initial/naive) and discard everything else
+            if (r == 0 && repeats > 1) {
+                Map<String, Double> round0Runtimes = new LinkedHashMap<>();
+                if (Files.exists(measure)) {
+                    for (String line : Files.readAllLines(measure)) {
+                        line = line.trim(); if (line.isEmpty()) continue;
+                        int oi = line.indexOf("\"orderId\":\"");
+                        int ri = line.indexOf("\"runtimeMs\":");
+                        if (oi < 0 || ri < 0) continue;
+                        String oid = line.substring(oi + 11, line.indexOf('"', oi + 11));
+                        int hash = oid.indexOf('#');
+                        String name = hash < 0 ? oid : oid.substring(0, hash);
+                        int round = hash < 0 ? 0 : Integer.parseInt(oid.substring(hash + 1));
+                        if (round == 0 && !excluded.containsKey(name) && !"initial".equals(name) && !"naive".equals(name)) {
+                            double rt = Double.parseDouble(line.substring(ri + 12, findEnd(line, ri + 12)));
+                            round0Runtimes.merge(name, rt, Double::sum);
+                        }
+                    }
+                }
+
+                // Sort candidates by round 0 runtimes
+                List<Map.Entry<String, Double>> sorted = new ArrayList<>(round0Runtimes.entrySet());
+                sorted.sort(Map.Entry.comparingByValue());
+
+                // Select top 3
+                java.util.Set<String> top3 = new java.util.HashSet<>();
+                for (int i = 0; i < Math.min(3, sorted.size()); i++) {
+                    top3.add(sorted.get(i).getKey());
+                }
+
+                // Discard all other candidates (except protected ones)
+                for (String name : names) {
+                    if (!"initial".equals(name) && !"naive".equals(name) && !top3.contains(name) && !excluded.containsKey(name)) {
+                        excluded.put(name, "discarded after round 0 (not in top 3)");
+                    }
+                }
+            }
         }
-        // Physically purge every scrapped candidate's rows from measure.jsonl so no report can credit its
+        // Physically purge every scrapped/discarded candidate's rows from measure.jsonl so no report can credit its
         // partial (unequal-round) data. Reports then see only clean, equal-round candidates.
         if (!excluded.isEmpty()) {
             List<String> keep = new ArrayList<>();
@@ -378,7 +416,7 @@ public final class Csto2 {
                 if (!excluded.containsKey(nm)) keep.add(line);
             }
             Files.write(measure, String.join("\n", keep).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            System.err.println("[csto2] scrapped " + excluded.size() + " candidate(s) for new failures: "
+            System.err.println("[csto2] excluded " + excluded.size() + " candidate(s): "
                     + String.join(", ", excluded.keySet()));
         }
         java.io.PrintStream originalOut = System.out;
