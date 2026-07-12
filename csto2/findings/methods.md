@@ -1,20 +1,20 @@
-# Candidate Strategies: What Each Method Is, and Its Record
+# Candidate Strategies
 
-CSTO2 ships no single optimizer. `select` builds many candidate orders from competing
-hypotheses, measures them all, and ships the fastest order that is both
-fully green and beats `initial` by >1%.
+Below are the different ordering strategies used by csto2.
 
-**Wins** = number of times the strategy was the shipped winner. Some methods consistently came in close second, and therefore have 0 wins. This file will be updated as speedups.md is.
+A strategy beginning with "pkg" means that intra-package class orders are kept the same, and only packages are reordered.
 
-| Method | Wins | How it works | Why it works |
-| --- | :---: | --- | --- |
-| `pkg-alloc-front` | **2** | Sort whole **package blocks** by aggregate allocation descending; preserve original order *within* each block. | Front-loads allocation-heavy packages so they allocate into a fresh, low-occupancy heap. Keeps intra-package class locality intact, so it does not shred any cross-class JIT/type-cache warmth. |
-| `alloc-front+warm-tail` | **1** | Heavy allocators (≥500 MB) to the front descending; cold-sensitive classes to the tail (see warm-tail). | Front: big allocators hit the empty heap first (GC). Tail: classes that get cheaper the later they run inherit maximum accumulated JIT/class-load warmth. When a suite exhibits both mechanisms, stacking them *sometimes* beats either alone (see overlap.md). |
-| `pkg-rt-front` | **1** | Sort package blocks by aggregate **runtime** descending; preserve order within each block. | The heaviest packages by wall-clock run first into the fresh JVM. Because the top allocators and top runtime classes overlap 70–90% (`overlap.md`), this is effectively `pkg-alloc-front` measured through a different lens, since heavy allocators tend to have the most runtime. It still beat `pkg-alloc-front` on commons-csv by a slim margin. |
-| `alloc-sort` | **1** | Full **global** sort by allocation bytes descending. No locality preservation. | Ideal when intra-suite locality does not matter. |
-| `naive` | **1** | The fastest of the trivially-traced (random) orders. A *free* baseline, not an optimizer result. | Wins only when the suite has too little exploitable structure for any model to beat lucky trace variance. commons-text has 24 classes and no clean alloc/JIT gradient, so the best-observed shuffle (+13.9%) beat every model. |
-| `jit-sort` | **1** | Full global sort by per-class JIT compilation time (`jitMs`) descending. | Front-loads the classes that trigger the most C2 compilation, so common hot methods are compiled early and later classes execute already-compiled. Wins jackson-core (+5.8%, where compilation is ~8.5s of a 12s run). |
-| `alloc-front` | 0 | Heavy allocators (≥500 MB) moved to front descending; everything else keeps initial order (minimal perturbation). | Same fresh-heap mechanism as `alloc-sort` but local: big allocators get the fresh heap, and order isn't touched where allocation does not make a difference. Lost by <1% multiple times. |
-| `warm-tail` | 0 | Moves the warmup-sensitive classes (the ones that run faster the later they execute) to the tail, and leaves every other class where it was. A class only qualifies if that late-position speedup is large and consistent. | Measured by the **slope model**: a per-class least-squares fit of runtime against position. A negative slope means the class gets cheaper the later it runs. Since the slope is fit across however many trace runs we have (default 6), there are very few data points to fit the model. |
-| `initial` | 0 | The as-given order. Protected incumbent and baseline; all speedups are reported against it. | Ships only as the fallback when no candidate beats it by the >1% margin. It "wins" by default when a suite has zero exploitable headroom. Across these six suites a real candidate always beat it, so it never shipped. |
-| `jfr-gc-front` / `jfr-warmup-front` / `jfr-gc+warmup-front` | — | **RETIRED.** Classified tests by JFR-derived mechanism (old/full-GC carriers, shareable-warmup carriers) and fronted them accordingly. | Removed from the portfolio (`ditching_jfr.md`): MXBean strategies matched or beat them on every suite, while JFR added 2–15% profiling overhead. `jfr-warmup-front` survives in old logs only as a weak also-ran (+3.5–5.9%). Listed for completeness; no longer generated. |
+Generally, if a strategy ends with "front", that means that it moves only a few outliers instead of performing a global sort. "*-sort" on the other hand performs a global sort. However, this rule is unfortunately not always followed.
+
+| Method | Metrics used | Sort technique | Reasoning
+| --- |  --- | --- | --- |
+| pkg-alloc-front (should be pkg-alloc-sort) | Memory allocation of each class | Global sort of package blocks by their total allocation | Placing heavier allocators earlier can make them faster, since they're using a fresh heap with less to GC. Keeping classes together in packages can maintain cache locality.
+| alloc-front | Median total allocation | Any class with total allocation more than 3 standard deviations above the mean is moved to the beginning of the suite | Allocations on a fresh heap are faster. Not disturbing the established order can sometimes perform better.
+| alloc-sort | Median total allocation | Classes are globally sorted by mean total allocation | Allocations on a fresh heap are faster |
+| jit-sort | JIT compilation time | Classes are globally sorted by median time spent on JIT compilation. Higher JIT time goes at the front. | The idea is that classes that "warm up" shared methods through JIT compilation are moved to the front. [In practice, though, JIT time varies wildly](jit-vs-position.svg). This method should likely be refined. |
+| jit-front | JIT compilation time | Same as jit-sort, but moves outliers to the front (3 standard deviations above mean) instead of performing a global sort. |
+| warm-tail | Runtime vs. position | Per-class least-squares fit of runtime against position. Each data point is (position in suite, runtimeMS), and classes with a negative slope are assumed to get faster as they are moved to the end of the suite. | Stumbles upon classes that heavily utilize shared resources + cache.
+|
+| alloc-front+warm-tail | Median allocation, runtime vs. position | Direct combination of alloc-front and warm-tail | Combines a strategy that only affects the front with one that only affects the back. *What to do in case of overlap?*
+| pkg-rt-front (should be pkg-rt-sort) | Total package runtime | Sorts all packages by total median runtime across shuffle runs. | Unknown why this works. Likely because of [chance overlap with other strategies](overlap.md)
+| rt-heavy-tail | Class runtime | Moves runtime-heavy outliers to the end of the test suite | Unknown why this works. +11.3% on snakeyaml.

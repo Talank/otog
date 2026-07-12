@@ -113,6 +113,18 @@ The following tables compare the raw median runtimes (ms) and the relative speed
 | `jit-front` (local) | +19.70% | +1.90% |
 | `jit-sort` (global) | +16.22% | **+5.81%** |
 
+## Caveat: per-test `jitMs` is mostly position, not the test
+
+Each test's jitMs is normalized to its own max across the 6 traced orders; the binned median falls from 0.80 (run early/cold) to 0.14 (run late/warm), so a single reading mostly encodes *where the test ran*, not what it costs. `SimpleNameTest` is the extreme case (1058 ms at position 1, ~0 everywhere else); the median-of-shuffles used by `jit-sort` survives only via the exclusive-compilation floor of the heavies, which is a correlation, not a mechanism — a drop metric (max − min) would measure the shareable compilation directly.
+
+![jitMs vs position](jit-vs-position.svg)
+
+## Threshold sensitivity: classes captured vs. `k`
+
+`alloc-front`/`jit-front` flag a class heavy when its signal, on a log scale, sits more than `k` standard deviations above the suite mean (`heavyOutliers` in `Candidates.java`). The chart below sweeps `k` for `javaparser-core-testing` (the one module where both `-front` strategies win): at the shipped default `k=3.0` it captures 5 classes (alloc) / 3 (jit), and the two curves track each other closely all the way down — the same alloc/JIT overlap seen in the top-10 tables. Capture saturates at all 287 classes near `k ≈ -0.8`; the 15% relocation cap (43 classes) is the ceiling any single move relocates.
+
+![Classes captured as the heavy-outlier threshold is lowered](threshold-capture.svg)
+
 # Conclusion
 
 This overlap was going to be used to justify removing either jit or alloc methods. This would make the analysis faster. However, the jackson-core vs. javaparser-core-testing case study disproves this (because alloc-sort is -1.88% while jit-sort is +5.81%). More research is needed.

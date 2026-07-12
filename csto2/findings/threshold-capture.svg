@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 460" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+<style>
+ .bg{fill:#fcfcfb} .grid{stroke:#e7e6e2;stroke-width:1} .axis{stroke:#c9c8c3;stroke-width:1}
+ .tick{fill:#8b8a85;font-size:11px} .axtitle{fill:#52514e;font-size:12px;font-weight:500}
+ .title{fill:#0b0b0b;font-size:16px;font-weight:650} .sub{fill:#52514e;font-size:12px}
+ .cap{stroke:#8b8a85;stroke-width:1.5;stroke-dasharray:4 4;opacity:.75} .reftxt{fill:#8b8a85;font-size:11px}
+ .band{fill:#8b8a85;opacity:.07} .lab{font-size:12px;font-weight:600}
+ .alloc{stroke:#2a78d6} .jit{stroke:#1baf7a} .allocf{fill:#2a78d6} .jitf{fill:#1baf7a}
+ @media (prefers-color-scheme:dark){
+  .bg{fill:#1a1a19} .grid{stroke:#302f2d} .axis{stroke:#403f3c} .tick{fill:#8b8a85}
+  .axtitle{fill:#c3c2b7} .title{fill:#fff} .sub{fill:#c3c2b7} .band{fill:#8b8a85}
+  .alloc{stroke:#3987e5} .jit{stroke:#199e70} .allocf{fill:#3987e5} .jitf{fill:#199e70}}
+</style>
+<rect class="bg" x="0" y="0" width="820" height="460"/>
+<text class="title" x="56" y="20">Test classes captured as the heavy-outlier threshold is lowered</text>
+<text class="sub" x="56" y="34">javaparser-core-testing · 287 classes · alloc-front +20.2%, jit-front +19.7% · left→right = lowering k</text>
+<rect class="band" x="56.0" y="40" width="138.0" height="364"/>
+<text class="reftxt" x="125.0" y="54" text-anchor="middle">default k=3.0</text>
+<line class="grid" x1="56" x2="746" y1="404.0" y2="404.0"/>
+<text class="tick" x="47" y="408.0" text-anchor="end">0</text>
+<line class="grid" x1="56" x2="746" y1="343.3" y2="343.3"/>
+<text class="tick" x="47" y="347.3" text-anchor="end">50</text>
+<line class="grid" x1="56" x2="746" y1="282.7" y2="282.7"/>
+<text class="tick" x="47" y="286.7" text-anchor="end">100</text>
+<line class="grid" x1="56" x2="746" y1="222.0" y2="222.0"/>
+<text class="tick" x="47" y="226.0" text-anchor="end">150</text>
+<line class="grid" x1="56" x2="746" y1="161.3" y2="161.3"/>
+<text class="tick" x="47" y="165.3" text-anchor="end">200</text>
+<line class="grid" x1="56" x2="746" y1="100.7" y2="100.7"/>
+<text class="tick" x="47" y="104.7" text-anchor="end">250</text>
+<line class="grid" x1="56" x2="746" y1="55.8" y2="55.8"/>
+<text class="tick" x="47" y="59.8" text-anchor="end">287</text>
+<text class="tick" x="56.0" y="424" text-anchor="middle">4.0</text>
+<text class="tick" x="194.0" y="424" text-anchor="middle">3.0</text>
+<text class="tick" x="332.0" y="424" text-anchor="middle">2.0</text>
+<text class="tick" x="470.0" y="424" text-anchor="middle">1.0</text>
+<text class="tick" x="608.0" y="424" text-anchor="middle">0.0</text>
+<text class="tick" x="746.0" y="424" text-anchor="middle">-1.0</text>
+<line class="axis" x1="56" x2="746" y1="404" y2="404"/>
+<line class="axis" x1="56" x2="56" y1="40" y2="404"/>
+<text class="axtitle" x="401" y="448" text-anchor="middle">k threshold (σ above log-mean) — lower = wider net →</text>
+<text class="axtitle" x="14" y="222" text-anchor="middle" transform="rotate(-90 14 222)">test classes captured</text>
+<line class="cap" x1="56" x2="746" y1="351.8" y2="351.8"/>
+<text class="reftxt" x="744" y="345.8" text-anchor="end">15% cap = 43</text>
+<path class="alloc" fill="none" stroke-width="2" stroke-linejoin="round" d="M56.0 399.1 L69.8 399.1 L83.6 399.1 L97.4 399.1 L111.2 399.1 L125.0 397.9 L138.8 397.9 L152.6 397.9 L166.4 397.9 L180.2 397.9 L194.0 397.9 L207.8 396.7 L221.6 395.5 L235.4 395.5 L249.2 394.3 L263.0 393.1 L276.8 391.9 L290.6 389.4 L304.4 389.4 L318.2 389.4 L332.0 389.4 L345.8 388.2 L359.6 388.2 L373.4 387.0 L387.2 387.0 L401.0 385.8 L414.8 384.6 L428.6 380.9 L442.4 373.7 L456.2 371.2 L470.0 370.0 L483.8 368.8 L497.6 361.5 L511.4 359.1 L525.2 350.6 L539.0 340.9 L552.8 336.1 L566.6 331.2 L580.4 327.6 L594.2 321.5 L608.0 303.3 L621.8 280.2 L635.6 257.2 L649.4 229.3 L663.2 191.7 L677.0 162.5 L690.8 126.1 L704.6 116.4 L718.4 55.8 L732.2 55.8 L746.0 55.8"/>
+<path class="jit" fill="none" stroke-width="2" stroke-linejoin="round" d="M56.0 402.8 L69.8 402.8 L83.6 401.6 L97.4 401.6 L111.2 401.6 L125.0 401.6 L138.8 400.4 L152.6 400.4 L166.4 400.4 L180.2 400.4 L194.0 400.4 L207.8 399.1 L221.6 399.1 L235.4 399.1 L249.2 396.7 L263.0 395.5 L276.8 395.5 L290.6 394.3 L304.4 393.1 L318.2 390.7 L332.0 385.8 L345.8 384.6 L359.6 382.2 L373.4 377.3 L387.2 370.0 L401.0 368.8 L414.8 364.0 L428.6 359.1 L442.4 355.5 L456.2 349.4 L470.0 344.5 L483.8 342.1 L497.6 337.3 L511.4 334.8 L525.2 328.8 L539.0 310.6 L552.8 306.9 L566.6 297.2 L580.4 289.9 L594.2 281.5 L608.0 271.7 L621.8 258.4 L635.6 249.9 L649.4 249.9 L663.2 211.1 L677.0 211.1 L690.8 167.4 L704.6 167.4 L718.4 167.4 L732.2 167.4 L746.0 55.8"/>
+<text class="lab allocf" x="752.0" y="69.8">alloc</text>
+<text class="lab jitf" x="752.0" y="49.8">jit</text>
+<circle class="allocf" cx="194.0" cy="397.9" r="3.5"/>
+<circle class="jitf" cx="194.0" cy="400.4" r="3.5"/>
+</svg>
