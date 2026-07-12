@@ -20,26 +20,6 @@ trivially-traced order), not just `initial`.
 | apache/curator | alloc-sort | 510889ms | 509202ms | 0.3% | 0.3% | 1.0000 | No | module: `curator-framework` |
 | apache/paimon | alloc-sort | 926511ms | 786869ms | 23.6% | 15.1% | 0.0020 | Yes | module: `paimon-core` |
 
-
-
-## Statistical validation — procedure
-
-For each project, the winning strategy's `.csto2` order (regenerated from scratch via
-`discover`/`trace`/`select` where it had been deleted) was measured against `initial` for 10 fresh,
-interleaved repeats with the instrumentation agent off, and the paired per-run total wall-clock times
-were compared with a two-sided Wilcoxon signed-rank test at α = 0.05. Of the six originally reported
-wins, commons-math and fastjson2 did **not** survive the re-test; commons-csv, both javaparser modules,
-and (after the kill-9 fix) commons-text do.
-
-**Excluded tests** (failed consistently regardless of order, unrelated to ordering):
-- commons-text: `TextStringBuilderTest` — deliberately triggers `OutOfMemoryError`, which the fork's
-  `-XX:OnOutOfMemoryError=kill` flag treated as fatal. **No longer excluded** — the surefire fork now
-  drops that flag; the class runs green in-suite. See `2026-W28/commons-text-kill9-truncation.md`.
-- javaparser-symbol-solver-testing: `ReflectionInterfaceDeclarationTest`,
-  `ReflectionClassDeclarationTest`, `ReferenceTypeTest`, `JavaParserInterfaceDeclarationTest`,
-  `JavaParserEnumDeclarationTest`, `JavaParserClassDeclarationTest` — using JDK 23 instead of JDK 8
-  breaks all of these.
-
 # Logs
 
 ## commons-csv
