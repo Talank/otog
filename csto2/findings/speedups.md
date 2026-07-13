@@ -7,18 +7,20 @@ The **p-value** column is a two-sided Wilcoxon signed-rank test (α = 0.05) from
 treated as noise, not a win. Remember a real optimizer win must also beat **naïve-5** (the fastest
 trivially-traced order), not just `initial`.
 
-| Project | Fastest Strategy | Initial Median | Naïve-5 Median | Speedup vs Initial | Naïve-5 Speedup vs Initial | p-value vs Initial | Significant vs Initial? | p-value vs Naïve-5 | Significant vs Naïve-5? | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| apache/commons-csv | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | 0.008 | Yes | n/a | n/a | |
-| javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | 0.006 | Yes | n/a | n/a | module: `javaparser-core-testing`; alloc-front and pkg-alloc-front are the same speedup |
-| apache/commons-text | jit-sort | 17370ms | 16031ms | 12.9% | 7.7% | 0.0020 | Yes | 0.0488 | Yes | Corrected 2026-07-09 — old row (`naive-5` 13.9%) was a kill-9 truncation artifact (`naive-5.order`==`initial.order`). Full-suite 10-round Wilcoxon after the fork dropped `-XX:OnOutOfMemoryError=kill -9`; `alloc-sort` +12.0% (p=0.0020) close 2nd, both beat naive-5. See `2026-W28/commons-text-kill9-truncation.md`. |
-| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | 1.000 | No | 0.0488 | No | Ran `commons-math-legacy`; 10-round re-test showed −0.3% (did not hold). Excluded 3 RNG-dependent tests (simplex optimizers) |
-| alibaba/fastjson2 | pkg-alloc-front | 22462ms | 23171ms | 1.1% | -3.2% | 0.415 | No | 0.6250 | No | Ran `core`; 10-round re-test showed −0.05% (did not hold); did not run with all approaches |
-| javaparser/javaparser | alloc-sort | 22028ms | 22092ms | 11.1% | -0.3% | 0.008 | Yes | 0.0020 | Yes | module: `symbol-solver-testing`; more measurement runs; alloc-front+warm-tail was close second |
-| netty/netty | pkg-alloc-front | 65407ms | 65391ms | 0.1% | 0.0% | 0.1934 | No | 0.5566 | No | module: `transport` |
-| AsyncHttpClient/async-http-client | pkg-alloc-front | 240761ms | 241109ms | 0.0% | -0.1% | 0.4922 | No | 0.6250 | No | module: `client` |
-| apache/curator | alloc-sort | 510889ms | 509202ms | 0.3% | 0.3% | 1.0000 | No | 0.9219 | No | module: `curator-framework` |
-| apache/paimon | alloc-sort | 926511ms | 786869ms | 23.6% | 15.1% | 0.0020 | Yes | 0.0020 | Yes | module: `paimon-core` |
+The **Naïve-100 Median** and **Naïve-100 Speedup vs Initial** columns are computed using the previous researcher's Excel logs (CSTO v1 run logs) to ensure machine consistency (as absolute runtimes differ from our local system).
+
+| Project | Fastest Strategy | Initial Median | Naïve-5 Median | Speedup vs Initial | Naïve-5 Speedup vs Initial | p-value vs Initial | Significant vs Initial? | p-value vs Naïve-5 | Significant vs Naïve-5? | Naïve-100 Median | Naïve-100 Speedup vs Initial | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| apache/commons-csv | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | 0.008 | Yes | n/a | n/a | n/a | n/a | |
+| javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | 0.006 | Yes | n/a | n/a | 22.09s | +17.1% | module: `javaparser-core-testing`; alloc-front and pkg-alloc-front are the same speedup |
+| apache/commons-text | jit-sort | 17370ms | 16031ms | 12.9% | 7.7% | 0.0020 | Yes | 0.0488 | Yes | n/a | n/a | Corrected 2026-07-09 — old row (`naive-5` 13.9%) was a kill-9 truncation artifact (`naive-5.order`==`initial.order`). Full-suite 10-round Wilcoxon after the fork dropped `-XX:OnOutOfMemoryError=kill -9`; `alloc-sort` +12.0% (p=0.0020) close 2nd, both beat naive-5. See `2026-W28/commons-text-kill9-truncation.md`. |
+| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | 1.000 | No | 0.0488 | No | n/a | n/a | Ran `commons-math-legacy`; 10-round re-test showed −0.3% (did not hold). Excluded 3 RNG-dependent tests (simplex optimizers) |
+| alibaba/fastjson2 | pkg-alloc-front | 22462ms | 23171ms | 1.1% | -3.2% | 0.415 | No | 0.6250 | No | n/a | n/a | Ran `core`; 10-round re-test showed −0.05% (did not hold); did not run with all approaches |
+| javaparser/javaparser | alloc-sort | 22028ms | 22092ms | 11.1% | -0.3% | 0.008 | Yes | 0.0020 | Yes | 29.95s | -0.9% | module: `symbol-solver-testing`; more measurement runs; alloc-front+warm-tail was close second |
+| netty/netty | pkg-alloc-front | 65407ms | 65391ms | 0.1% | 0.0% | 0.1934 | No | 0.5566 | No | 60.35s | +3.5% | module: `transport` |
+| AsyncHttpClient/async-http-client | pkg-alloc-front | 240761ms | 241109ms | 0.0% | -0.1% | 0.4922 | No | 0.6250 | No | 215.59s | -1.0% | module: `client` |
+| apache/curator | alloc-sort | 510889ms | 509202ms | 0.3% | 0.3% | 1.0000 | No | 0.9219 | No | 525.92s | -2.0% | module: `curator-framework` |
+| apache/paimon | alloc-sort | 926511ms | 786869ms | 23.6% | 15.1% | 0.0020 | Yes | 0.0020 | Yes | 840.01s | +8.1% | module: `paimon-core` |
 
 # Logs
 

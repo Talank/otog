@@ -8,8 +8,10 @@ random_test_order_generation_ML/random_orders_1/
 greedy/summarized_data/
 random_test_order_generation_ML/
 results_error_v50
+/results_*
 /csto2/target
 /tool
 /docker_template/deps/
 
 /remote_results
+/generated_orders
