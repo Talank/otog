@@ -20,7 +20,14 @@ Usage: ./run.sh [--build] [--java <N|path>] [-f|--foreground] <CONFIG_ID>
   -f, --foreground  Stream output to the terminal instead of detaching.
 
 By default the run detaches: it keeps running after you close the terminal, and all
-output is saved to results/<ID>_<timestamp>/run.log even though --rm is set.
+output is saved to results_<ID>/run.log even though --rm is set.
+
+Each module gets its own stable results_<ID>/ folder (matches docker_template/README.md),
+so running different modules at once never collides: e.g.
+  ./run.sh 1305
+  ./run.sh 3613
+both launch immediately, each writing to its own results_1305/ / results_3613/.
+Running the SAME module twice concurrently is refused (would corrupt the shared mount).
 
 Container is pinned to the GitHub ubuntu-latest spec: ${CPUS} CPU / ${MEM} RAM.
 EOF
@@ -76,11 +83,22 @@ if [ "$FORCE_BUILD" -eq 1 ] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; 
   docker build --platform "$PLATFORM" -t "$IMAGE" "$CTX"
 fi
 
-# Fresh results folder per run so previous results are never clobbered.
-STAMP=$(date +%Y%m%d-%H%M%S)
-OUT_DIR="results/${CONFIG_ID}_${STAMP}"
+# One stable folder + container name per MODULE (not per run) so concurrent runs of DIFFERENT
+# modules never share a mount. Re-running the same module overwrites its own results_<ID>/ (csto2
+# itself deletes/rewrites trace.jsonl and measure.jsonl at the start of each phase); running the
+# SAME module twice AT THE SAME TIME would corrupt that shared mount, so refuse it up front --
+# Docker's own "name already in use" error would otherwise surface confusingly from a backgrounded,
+# already-detached process.
+OUT_DIR="results_${CONFIG_ID}"
 LOG="${OUT_DIR}/run.log"
-CONTAINER="csto2_${CONFIG_ID}_${STAMP}"
+CONTAINER="csto2_${CONFIG_ID}"
+
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$CONTAINER"; then
+  echo "Error: ${CONTAINER} is already running (module ${CONFIG_ID})." >&2
+  echo "  Wait for it to finish, or stop it first: docker stop ${CONTAINER}" >&2
+  exit 1
+fi
+
 mkdir -p "$OUT_DIR"
 
 RUN_ARGS=(
