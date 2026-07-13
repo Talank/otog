@@ -62,10 +62,18 @@ if [ -n "$JAVA_OVERRIDE" ]; then
   JAVA_ENV=(-e "CSTO_DISCOVER_JAVA=${JAVA_PATH}")
 fi
 
+# Auto-detect host architecture to run natively/cleanly on macOS (Apple Silicon).
+ARCH=$(uname -m)
+if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+  PLATFORM="linux/arm64"
+else
+  PLATFORM="linux/amd64"
+fi
+
 # Build the image if forced or if it doesn't exist yet.
 if [ "$FORCE_BUILD" -eq 1 ] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  echo ">> Building image '${IMAGE}'..."
-  docker build --platform linux/amd64 -t "$IMAGE" "$CTX"
+  echo ">> Building image '${IMAGE}' for platform '${PLATFORM}'..."
+  docker build --platform "$PLATFORM" -t "$IMAGE" "$CTX"
 fi
 
 # Fresh results folder per run so previous results are never clobbered.
@@ -78,7 +86,7 @@ mkdir -p "$OUT_DIR"
 RUN_ARGS=(
   --rm
   --name "$CONTAINER"
-  --platform linux/amd64
+  --platform "$PLATFORM"
   --cpus="$CPUS"
   --memory="$MEM"
   --memory-swap="$MEM"

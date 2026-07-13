@@ -1,5 +1,7 @@
 FROM maven:3.9-eclipse-temurin-21
 
+ARG TARGETARCH
+
 # Install native compilation dependencies for Netty and general utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -20,26 +22,60 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /workspace
 
-# Create JVM directory
-RUN mkdir -p /usr/lib/jvm
+# Copy deps directory to temp
+COPY deps/ /tmp/deps/
 
-# Copy and unpack JDK 8
-COPY deps/jdk-8u102.tgz /tmp/
-RUN tar -xzf /tmp/jdk-8u102.tgz -C /usr/lib/jvm/ \
-    && ln -s /usr/lib/jvm/jdk1.8.0_102 /usr/lib/jvm/java-8-openjdk-amd64 \
-    && rm /tmp/jdk-8u102.tgz
-
-# Copy and unpack JDK 11
-COPY deps/openjdk-11.0.2_linux-x64_bin.tar.gz /tmp/
-RUN tar -xzf /tmp/openjdk-11.0.2_linux-x64_bin.tar.gz -C /usr/lib/jvm/ \
-    && ln -s /usr/lib/jvm/jdk-11.0.2 /usr/lib/jvm/java-11-openjdk-amd64 \
-    && rm /tmp/openjdk-11.0.2_linux-x64_bin.tar.gz
-
-# Copy and unpack JDK 17
-COPY deps/openjdk-17.0.2_linux-x64_bin.tar.gz /tmp/
-RUN tar -xzf /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz -C /usr/lib/jvm/ \
-    && ln -s /usr/lib/jvm/jdk-17.0.2 /usr/lib/jvm/java-17-openjdk-amd64 \
-    && rm /tmp/openjdk-17.0.2_linux-x64_bin.tar.gz
+# Setup JDKs (8, 11, 17) depending on target architecture
+RUN set -eux; \
+    ARCH=""; \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        ARCH="x64"; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        ARCH="aarch64"; \
+    else \
+        ARCH="$TARGETARCH"; \
+    fi; \
+    echo "Resolving JDKs for target architecture: $TARGETARCH (Adoptium arch: $ARCH)"; \
+    mkdir -p /usr/lib/jvm; \
+    \
+    # Setup JDK 8 \
+    mkdir -p /usr/lib/jvm/java-8-openjdk-amd64; \
+    if [ "$TARGETARCH" = "amd64" ] && [ -f /tmp/deps/jdk-8u102.tgz ]; then \
+        echo "Using local JDK 8 for amd64"; \
+        tar -xzf /tmp/deps/jdk-8u102.tgz -C /usr/lib/jvm/java-8-openjdk-amd64 --strip-components=1; \
+    else \
+        echo "Downloading JDK 8 from Adoptium for $ARCH"; \
+        curl -L "https://api.adoptium.net/v3/binary/latest/8/ga/linux/${ARCH}/jdk/hotspot/normal/eclipse" -o /tmp/jdk8.tar.gz; \
+        tar -xzf /tmp/jdk8.tar.gz -C /usr/lib/jvm/java-8-openjdk-amd64 --strip-components=1; \
+        rm /tmp/jdk8.tar.gz; \
+    fi; \
+    \
+    # Setup JDK 11 \
+    mkdir -p /usr/lib/jvm/java-11-openjdk-amd64; \
+    if [ "$TARGETARCH" = "amd64" ] && [ -f /tmp/deps/openjdk-11.0.2_linux-x64_bin.tar.gz ]; then \
+        echo "Using local JDK 11 for amd64"; \
+        tar -xzf /tmp/deps/openjdk-11.0.2_linux-x64_bin.tar.gz -C /usr/lib/jvm/java-11-openjdk-amd64 --strip-components=1; \
+    else \
+        echo "Downloading JDK 11 from Adoptium for $ARCH"; \
+        curl -L "https://api.adoptium.net/v3/binary/latest/11/ga/linux/${ARCH}/jdk/hotspot/normal/eclipse" -o /tmp/jdk11.tar.gz; \
+        tar -xzf /tmp/jdk11.tar.gz -C /usr/lib/jvm/java-11-openjdk-amd64 --strip-components=1; \
+        rm /tmp/jdk11.tar.gz; \
+    fi; \
+    \
+    # Setup JDK 17 \
+    mkdir -p /usr/lib/jvm/java-17-openjdk-amd64; \
+    if [ "$TARGETARCH" = "amd64" ] && [ -f /tmp/deps/openjdk-17.0.2_linux-x64_bin.tar.gz ]; then \
+        echo "Using local JDK 17 for amd64"; \
+        tar -xzf /tmp/deps/openjdk-17.0.2_linux-x64_bin.tar.gz -C /usr/lib/jvm/java-17-openjdk-amd64 --strip-components=1; \
+    else \
+        echo "Downloading JDK 17 from Adoptium for $ARCH"; \
+        curl -L "https://api.adoptium.net/v3/binary/latest/17/ga/linux/${ARCH}/jdk/hotspot/normal/eclipse" -o /tmp/jdk17.tar.gz; \
+        tar -xzf /tmp/jdk17.tar.gz -C /usr/lib/jvm/java-17-openjdk-amd64 --strip-components=1; \
+        rm /tmp/jdk17.tar.gz; \
+    fi; \
+    \
+    # Clean up temp deps \
+    rm -rf /tmp/deps
 
 # Sync modern CA certificates to the manually installed JDKs to prevent SSL/TLS connection failures
 RUN cp /opt/java/openjdk/lib/security/cacerts /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts \

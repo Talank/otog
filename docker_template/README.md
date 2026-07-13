@@ -27,10 +27,10 @@ Ensure that the `docker_template/deps/` directory is populated with the JDK tarb
 From the repository root directory, run:
 
 ```bash
-docker build --platform linux/amd64 -t csto2-runner docker_template
+docker build -t csto2-runner docker_template
 ```
 
-*(Note: `--platform linux/amd64` is required because the bundled JDK tarballs are compiled for x64 architecture. If you are on an Apple Silicon Mac, Docker will automatically use Rosetta 2 to build and run the image.)*
+*(Note: The build process automatically detects your CPU architecture. If you are on an Apple Silicon Mac, it will download and configure native arm64/aarch64 JDKs, allowing the container to run natively and cleanly. On Intel/x64 systems, it will use the pre-packaged local dependencies or download x64 JDKs.)*
 
 This will build a self-contained image with all required JDKs (8, 11, 17, 21), native development dependencies, the custom surefire testorder extension, and pre-packaged CSTO binaries and configurations.
 
