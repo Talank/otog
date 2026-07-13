@@ -9,7 +9,7 @@ A real optimizer win must be **significant vs initial** _and_ **significant vs n
 
 | ID | Project | Module | Strategy | Initial | Naïve-5 | Δ Initial | Δ Naïve-5 | p (init) | p (n-5) | Sig? | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1683 | javaparser/javaparser | symbol-solver-testing | alloc-sort | 11434ms | 11380ms | 5.1% | 0.5% | 0.0039 | 0.0020 | ✓ both | Corrected 2026-07-13; was stale select-phase data |
+| 1683 | javaparser/javaparser | symbol-solver-testing | alloc-sort | 11434ms | 11380ms | 5.1% | 0.5% | 0.0039 | 0.0020 | ✓ both | Corrected 2026-07-13; was incorrect data |
 | 1685 | javaparser/javaparser | core-testing | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | 0.006 | n/a | ✓ init | Naïve-5 re-test pending |
 | 29 | netty/netty | transport | pkg-alloc-front | 65407ms | 65391ms | 0.1% | 0.0% | 0.1934 | 0.5566 | ✗ | |
 | 1305 | AsyncHttpClient/async-http-client | client | pkg-alloc-front | 240761ms | 241109ms | 0.0% | -0.1% | 0.4922 | 0.6250 | ✗ | |
