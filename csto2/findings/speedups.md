@@ -1,25 +1,30 @@
 # Speedups & statistical validity
 
-Per-project `select` winners, plus a Wilcoxon signed-rank re-test of each winner against `initial`.
-The **p-value** column is a two-sided Wilcoxon signed-rank test (α = 0.05) from an *independent
-10-round paired re-measurement* of that winner vs `initial` (agent off, interleaved repeats);
-**n/a** = no test was run. A speedup that does not clear the test (**Significant? = No**) should be
-treated as noise, not a win. Remember a real optimizer win must also beat **naïve-5** (the fastest
-trivially-traced order), not just `initial`.
+Per-project `select` winners, re-tested with a two-sided Wilcoxon signed-rank test
+(α = 0.05, 10-round paired measurement, agent off, interleaved repeats).
+A real optimizer win must be **significant vs initial** _and_ **significant vs naïve-5**
+(the fastest trivially-traced order).
 
-| Project | Fastest Strategy | Initial Median | Naïve-5 Median | Speedup vs Initial | Naïve-5 Speedup vs Initial | p-value vs Initial | Significant vs Initial? | p-value vs Naïve-5 | Significant vs Naïve-5? | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| apache/commons-csv | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | 0.008 | Yes | n/a | n/a | |
-| javaparser/javaparser | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | 0.006 | Yes | n/a | n/a | module: `javaparser-core-testing`; alloc-front and pkg-alloc-front are the same speedup |
-| apache/commons-text | jit-sort | 17370ms | 16031ms | 12.9% | 7.7% | 0.0020 | Yes | 0.0488 | Yes | Corrected 2026-07-09 — old row (`naive-5` 13.9%) was a kill-9 truncation artifact (`naive-5.order`==`initial.order`). Full-suite 10-round Wilcoxon after the fork dropped `-XX:OnOutOfMemoryError=kill -9`; `alloc-sort` +12.0% (p=0.0020) close 2nd, both beat naive-5. See `2026-W28/commons-text-kill9-truncation.md`. |
-| apache/commons-math | pkg-alloc-front | 17195ms | 16422ms | 5.6% | 4.5% | 1.000 | No | 0.0488 | No | Ran `commons-math-legacy`; 10-round re-test showed −0.3% (did not hold). Excluded 3 RNG-dependent tests (simplex optimizers) |
-| alibaba/fastjson2 | pkg-alloc-front | 22462ms | 23171ms | 1.1% | -3.2% | 0.415 | No | 0.6250 | No | Ran `core`; 10-round re-test showed −0.05% (did not hold); did not run with all approaches |
-| javaparser/javaparser | alloc-sort | 22028ms | 22092ms | 11.1% | -0.3% | 0.008 | Yes | 0.0020 | Yes | module: `symbol-solver-testing`; more measurement runs; alloc-front+warm-tail was close second |
-| netty/netty | pkg-alloc-front | 65407ms | 65391ms | 0.1% | 0.0% | 0.1934 | No | 0.5566 | No | module: `transport` |
-| AsyncHttpClient/async-http-client | pkg-alloc-front | 240761ms | 241109ms | 0.0% | -0.1% | 0.4922 | No | 0.6250 | No | module: `client` |
-| apache/curator | alloc-sort | 510889ms | 509202ms | 0.3% | 0.3% | 1.0000 | No | 0.9219 | No | module: `curator-framework` |
-| apache/paimon | alloc-sort | 926511ms | 786869ms | 23.6% | 15.1% | 0.0020 | Yes | 0.0020 | Yes | module: `paimon-core` |
-| spring-projects/spring-ai | pkg-alloc-front | 13225ms | 13436ms | -0.2% | -1.6% | 0.8457 | No | 0.1309 | No | module: `models/spring-ai-openai`; 10-round Wilcoxon showed no significant speedup |
+## Paper eval dataset (prior research)
+
+| ID | Project | Module | Strategy | Initial | Naïve-5 | Δ Initial | Δ Naïve-5 | p (init) | p (n-5) | Sig? | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1683 | javaparser/javaparser | symbol-solver-testing | alloc-sort | 11434ms | 11380ms | 5.1% | 0.5% | 0.0039 | 0.0020 | ✓ both | Corrected 2026-07-13; was stale select-phase data |
+| 1685 | javaparser/javaparser | core-testing | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | 0.006 | n/a | ✓ init | Naïve-5 re-test pending |
+| 29 | netty/netty | transport | pkg-alloc-front | 65407ms | 65391ms | 0.1% | 0.0% | 0.1934 | 0.5566 | ✗ | |
+| 1305 | AsyncHttpClient/async-http-client | client | pkg-alloc-front | 240761ms | 241109ms | 0.0% | -0.1% | 0.4922 | 0.6250 | ✗ | |
+| 3323 | apache/curator | curator-framework | alloc-sort | 510889ms | 509202ms | 0.3% | 0.3% | 1.0000 | 0.9219 | ✗ | |
+| 3613 | apache/paimon | paimon-core | alloc-sort | 926511ms | 786869ms | 23.6% | 15.1% | 0.0020 | 0.0020 | ✓ both | |
+| 1778 | spring-projects/spring-ai | spring-ai-openai | pkg-alloc-front | 13225ms | 13436ms | -0.2% | -1.6% | 0.8457 | 0.1309 | ✗ | |
+
+## Additional projects
+
+| Project | Module | Strategy | Initial | Naïve-5 | Δ Initial | Δ Naïve-5 | p (init) | p (n-5) | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| apache/commons-csv | — | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | 0.008 | n/a | Naïve-5 re-test pending |
+| apache/commons-text | — | jit-sort | 17370ms | 16031ms | 12.9% | 7.7% | 0.0020 | 0.0488 | Corrected 2026-07-09; kill-9 truncation fix |
+| apache/commons-math | commons-math-legacy | pkg-alloc-front | 17195ms | 16422ms | 5.6% | — | 1.000 | — | 10-round re-test: −0.3%, did not hold |
+| alibaba/fastjson2 | core | pkg-alloc-front | 22462ms | 23171ms | 1.1% | — | 0.415 | — | 10-round re-test: −0.05%, did not hold |
 
 # Logs
 
@@ -169,36 +174,26 @@ did not hold.)
 ```
 (10-round Wilcoxon re-test: pkg-alloc-front −0.05% vs initial, p=0.415 — **not significant**.)
 
-## javaparser (symbol-solver-testing)
+## javaparser (symbol-solver-testing) — corrected 2026-07-13
+
+10-round paired Wilcoxon from local `.csto2/wilcoxon/measure.jsonl`. The previous block here
+used stale `select`-phase data (runs=8, initial median=22028ms, alloc-sort +11.1%) from an
+unknown environment; see git history.
 
 ```
 === CANDIDATE MEASUREMENTS ===
-  alloc-front            runs=8 median=20223ms min=18357ms max=21403ms  GREEN
-  jit-sort              runs=8 median=20091ms min=18682ms max=21415ms  GREEN
-  jfr-warmup-front       runs=8 median=21261ms min=18638ms max=22825ms  GREEN
-  initial                runs=8 median=22028ms min=19649ms max=24125ms  GREEN
-  pkg-alloc+observed-intra runs=8 median=21409ms min=19064ms max=22399ms  GREEN
-  alloc-front+warm-tail  runs=8 median=19869ms min=18205ms max=21675ms  GREEN
-  alloc-sort             runs=8 median=19593ms min=18516ms max=21517ms  GREEN
-  warm-tail              runs=8 median=20768ms min=18838ms max=22793ms  GREEN
-  pkg-alloc-front        runs=8 median=21095ms min=18840ms max=22593ms  GREEN
-  pkg-rt-front           runs=8 median=20873ms min=18911ms max=22837ms  GREEN
-  intra-warmup           runs=8 median=22215ms min=19647ms max=23461ms  GREEN
-  naive-5                  runs=8 median=22092ms min=19703ms max=24353ms  GREEN
+  alloc-sort             runs=10 median=10850ms min=8390ms max=11211ms  GREEN
+  initial                runs=10 median=11434ms min=10856ms max=12638ms  GREEN
+  naive                  runs=10 median=11380ms min=10984ms max=12511ms  GREEN
 
-  alloc-front            +8.2% vs initial
-  jit-sort              +8.8% vs initial
-  jfr-warmup-front       +3.5% vs initial
-  pkg-alloc+observed-intra +2.8% vs initial
-  alloc-front+warm-tail  +9.8% vs initial
-  alloc-sort             +11.1% vs initial
-  warm-tail              +5.7% vs initial
-  pkg-alloc-front        +4.2% vs initial
-  pkg-rt-front           +5.2% vs initial
-  intra-warmup           -0.8% vs initial
-  naive-5                  -0.3% vs initial
+  alloc-sort             +5.1% vs initial
+  naive                  +0.5% vs initial
 
-=> SHIP: alloc-sort  (19593ms, 11.1% faster than initial) [green]
+=> SHIP: alloc-sort  (10850ms, 5.1% faster than initial) [green]
+
+=== WILCOXON SIGNED-RANK (paired per round, vs initial) ===
+  alloc-sort             n=10  W+=54.0 W-=1.0  p=0.0039 (exact)  median +5.1% vs initial  SIGNIFICANT@0.05
+  naive                  n=10  W+=35.0 W-=20.0  p=0.4922 (exact)  median +0.5% vs initial  n.s.
 ```
 
 ## netty (transport)
