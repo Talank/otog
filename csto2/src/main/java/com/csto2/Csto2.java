@@ -366,9 +366,12 @@ public final class Csto2 {
             }
             System.err.println("[csto2] measured round " + (r + 1) + "/" + repeats);
 
-            // After the first run (round 0), select top 3 candidates (excluding initial/naive) and discard everything else
-            if (r == 0 && repeats > 1) {
-                Map<String, Double> round0Runtimes = new LinkedHashMap<>();
+            // After two rounds, keep the top 3 candidates (excluding initial/naive) by combined
+            // rounds-0+1 runtime and discard the rest. Two rounds instead of one: round 0 alone is
+            // the noisiest (cold caches, slot luck) and a single-round rank is close to a coin flip
+            // when candidates are within noise of each other.
+            if (r == 1 && repeats > 2) {
+                Map<String, Double> earlyRuntimes = new LinkedHashMap<>();
                 if (Files.exists(measure)) {
                     for (String line : Files.readAllLines(measure)) {
                         line = line.trim(); if (line.isEmpty()) continue;
@@ -379,15 +382,15 @@ public final class Csto2 {
                         int hash = oid.indexOf('#');
                         String name = hash < 0 ? oid : oid.substring(0, hash);
                         int round = hash < 0 ? 0 : Integer.parseInt(oid.substring(hash + 1));
-                        if (round == 0 && !excluded.containsKey(name) && !"initial".equals(name) && !"naive".equals(name)) {
+                        if (round <= 1 && !excluded.containsKey(name) && !"initial".equals(name) && !"naive".equals(name)) {
                             double rt = Double.parseDouble(line.substring(ri + 12, findEnd(line, ri + 12)));
-                            round0Runtimes.merge(name, rt, Double::sum);
+                            earlyRuntimes.merge(name, rt, Double::sum);
                         }
                     }
                 }
 
-                // Sort candidates by round 0 runtimes
-                List<Map.Entry<String, Double>> sorted = new ArrayList<>(round0Runtimes.entrySet());
+                // Sort candidates by combined rounds-0+1 runtime
+                List<Map.Entry<String, Double>> sorted = new ArrayList<>(earlyRuntimes.entrySet());
                 sorted.sort(Map.Entry.comparingByValue());
 
                 // Select top 3
@@ -396,10 +399,16 @@ public final class Csto2 {
                     top3.add(sorted.get(i).getKey());
                 }
 
-                // Discard all other candidates (except protected ones)
+                // Discard all other candidates (except protected ones), and say by how much they missed
+                double cutoff = top3.isEmpty() ? Double.NaN : sorted.get(Math.min(2, sorted.size() - 1)).getValue();
                 for (String name : names) {
                     if (!"initial".equals(name) && !"naive".equals(name) && !top3.contains(name) && !excluded.containsKey(name)) {
-                        excluded.put(name, "discarded after round 0 (not in top 3)");
+                        Double total = earlyRuntimes.get(name);
+                        String detail = (total == null || Double.isNaN(cutoff)) ? ""
+                                : String.format(" (%.0fms over 2 rounds, top-3 cutoff %.0fms)", total, cutoff);
+                        excluded.put(name, "discarded after 2 rounds (not in top 3)" + detail);
+                        System.err.println("[csto2] DISCARDED candidate " + name
+                                + ": not in top 3 after 2 rounds" + detail);
                     }
                 }
             }
