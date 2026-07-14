@@ -104,6 +104,12 @@ public final class SurefireOrchestrator implements OrderRunner {
         cmd.add("-Dmaven.build.cache.enabled=false");   // some projects (Avro) skip testCompile otherwise
         cmd.add("-Dmaven.test.failure.ignore=true");    // a red test must not abort the run; we read reports
         for (String p : extraProps) cmd.add(p);
+        // AFTER extraProps so these always win (Maven: last -D occurrence wins). A single reused fork
+        // is csto2's core invariant -- cross-class JIT/GC/alloc carryover IS the measured effect. A
+        // -DreuseForks=false leaking in via mvnopts silently runs every class in a fresh JVM, making
+        // all orderings measure identical (this happened; see findings/2026-W29).
+        cmd.add("-DforkCount=1");
+        cmd.add("-DreuseForks=true");
 
         String safe = orderId.replace('#', '_').replace('/', '_');
         Path agentFacts = null;
@@ -152,7 +158,21 @@ public final class SurefireOrchestrator implements OrderRunner {
             System.err.println("[csto2] order " + orderId + " INCOMPLETE: mvn exit=" + code
                     + ", " + missing + " of " + position.size() + " classes produced no report"
                     + " (fork crashed/OOM mid-run) -- flagged non-green");
-        if (agentFacts != null) mergeAgentFacts(rows, agentFacts);
+        if (agentFacts != null) {
+            mergeAgentFacts(rows, agentFacts);
+            // Carryover invariant check: the listener writes one row per class seen in ITS JVM, so a
+            // multi-class order must yield (roughly) one row per class. A near-empty facts file means the
+            // fork was NOT reused (per-class JVMs) and every ordering will measure identical -- fail loudly
+            // rather than silently produce a flat, meaningless comparison.
+            long factRows = Files.exists(agentFacts)
+                    ? Files.readAllLines(agentFacts).stream().filter(l -> !l.isBlank()).count() : 0;
+            if (position.size() > 1 && factRows <= 1)
+                System.err.println("[csto2] WARNING order " + orderId + ": agent saw " + factRows
+                        + " class(es) but the order has " + position.size()
+                        + " -- the fork is NOT being reused (per-class JVMs?). Cross-class carryover is "
+                        + "broken; order comparisons are meaningless. Check for -DreuseForks=false/forkCount "
+                        + "leaking into the surefire invocation.");
+        }
         if (traceOut.getParent() != null) Files.createDirectories(traceOut.getParent());
         StringBuilder sb = new StringBuilder();
         for (Map<String, Object> r : rows) sb.append(Json.write(r)).append('\n');
