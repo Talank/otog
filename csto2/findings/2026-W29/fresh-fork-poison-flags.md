@@ -18,5 +18,15 @@ all 10 configs; `SurefireOrchestrator.runOrder` now appends `-DforkCount=1 -Dreu
 user props (last -D wins) so mvnopts can never break the invariant; a runtime guard warns loudly if
 agent rows ≪ order size (fork not reused).
 
-**Consequence: every order-comparison number produced by the Docker harness before this fix is
-invalid** and must be re-measured (the per-class runtimes themselves are real, just cold-JVM ones).
+**Consequence: order-comparison numbers produced by the Docker harness before this fix are invalid
+for any project whose pom does not pin fork settings** and must be re-measured (the per-class
+runtimes themselves are real, just cold-JVM ones).
+
+**Exception — paimon (3613) is unaffected.** Its Flink-derived root pom explicitly configures
+`<reuseForks>${flink.reuseForks}</reuseForks>` (= true), and an explicit pom plugin configuration
+ignores the CLI `-DreuseForks=false` user property. Its Docker agent facts show 213 rows/order with
+the normal warmup signature — real shared-fork carryover — so paimon's +23.6% result stands.
+
+Verified both directions with a controlled A/B on a synthetic project (poison flags injected in
+both runs): pre-fix jar -> 7 classes run but 1 agent row (per-class forks, each overwriting the
+facts file; surviving row `position:0`, classesLoaded 178); post-fix jar -> 7 rows, one JVM.
