@@ -496,7 +496,7 @@ public final class Csto2 {
         System.out.println("\n=== CANDIDATE MEASUREMENTS ===");
         for (Map.Entry<String, List<Double>> e : perCand.entrySet()) {
             List<Double> v = new ArrayList<>(e.getValue()); v.sort(Double::compare);
-            double m = v.get(v.size() / 2);
+            double m = v.size() % 2 == 1 ? v.get(v.size() / 2) : (v.get(v.size() / 2 - 1) + v.get(v.size() / 2)) / 2.0;
             med.put(e.getKey(), m);
             int np = candNonPass.getOrDefault(e.getKey(), 0);
             System.out.printf("  %-22s runs=%d median=%.0fms min=%.0fms max=%.0fms  %s%n",
