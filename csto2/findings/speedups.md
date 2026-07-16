@@ -9,13 +9,16 @@ A real optimizer win must be **significant vs initial** _and_ **significant vs n
 
 | ID | Project | Module | Strategy | Initial | Naïve-5 | Δ Initial | Δ Naïve-5 | p (init) | p (n-5) | Sig? | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1683 | javaparser/javaparser | symbol-solver-testing | alloc-sort | 11434ms | 11380ms | 5.1% | 0.5% | 0.0039 | 0.0020 | ✓ both | Corrected 2026-07-13; was incorrect data |
-| 1685 | javaparser/javaparser | core-testing | pkg-rt-front | 13527ms | 12597ms | 23.3% | 6.9% | 0.006 | n/a | ✓ init | Naïve-5 re-test pending |
-| 29 | netty/netty | transport | pkg-alloc-front | 65407ms | 65391ms | 0.1% | 0.0% | 0.1934 | 0.5566 | ✗ | |
-| 1305 | AsyncHttpClient/async-http-client | client | pkg-alloc-front | 240761ms | 241109ms | 0.0% | -0.1% | 0.4922 | 0.6250 | ✗ | |
-| 3323 | apache/curator | curator-framework | alloc-sort | 510889ms | 509202ms | 0.3% | 0.3% | 1.0000 | 0.9219 | ✗ | |
-| 3613 | apache/paimon | paimon-core | alloc-sort | 926511ms | 786869ms | 23.6% | 15.1% | 0.0020 | 0.0020 | ✓ both | |
-| 1778 | spring-projects/spring-ai | spring-ai-openai | pkg-alloc-front | 13225ms | 13436ms | -0.2% | -1.6% | 0.8457 | 0.1309 | ✗ | |
+| 1683 | javaparser/javaparser | symbol-solver-testing | alloc-front+warm-tail | 31665ms | 29698ms | 16.8% | 11.3% | 0.0020 | 0.0039 | ✓ both |  |
+| 1685 | javaparser/javaparser | core-testing | pkg-alloc-front | 26565ms | 25665ms | 24.2% | 21.5% | 0.0020 | 0.0020 | ✓ both |  |
+| 20 | netty/netty | transport-native-epoll | rt-heavy-tail | 631728ms | 632332ms | 0.1% | 0.2% | 0.0371 | 0.0645 | ✗ |  |
+| 29 | netty/netty | transport | pkg-rt-front | 56272ms | 56035ms | 0.5% | 0.0% | 0.0840 | 0.3750 | ✗ |  |
+| 33 | netty/netty | handler | rt-heavy-tail | 292817ms | 290310ms | 0.5% | -0.4% | 0.1602 | 0.1602 | ✗ |  |
+| 1305 | AsyncHttpClient/async-http-client | client | alloc-front+warm-tail | 202993ms | 201541ms | 0.7% | -0.0% | 0.1309 | 0.0840 | ✗ |  |
+| 3320 | apache/curator | curator-recipes | — | — | — | — | — | — | — | pending |  |
+| 3323 | apache/curator | curator-framework | alloc-front+warm-tail | 480507ms | 482077ms | 0.1% | 0.5% | 1.0000 | 0.0273 | ✗ |  |
+| 3613 | apache/paimon | paimon-core | alloc-sort | 926511ms | 786869ms | 23.6% | 10.0% | 0.0020 | 0.0020 | ✓ both |  |
+| 1778 | spring-projects/spring-ai | spring-ai-openai | pkg-rt-front | 5921ms | 5822ms | 4.5% | 2.9% | 0.0371 | 0.0840 | ✓ init |  |
 
 ## Additional projects
 
@@ -62,32 +65,29 @@ A real optimizer win must be **significant vs initial** _and_ **significant vs n
 
 ```
 === CANDIDATE MEASUREMENTS ===
-  alloc-front            runs=4 median=10527ms min=10151ms max=10552ms  GREEN
-  jit-sort              runs=4 median=10865ms min=9995ms max=11768ms  GREEN
-  jfr-warmup-front       runs=4 median=12724ms min=11661ms max=12792ms  GREEN
-  initial                runs=4 median=13527ms min=12879ms max=13694ms  GREEN
-  pkg-alloc+observed-intra runs=4 median=10672ms min=9651ms max=11367ms  GREEN
-  alloc-front+warm-tail  runs=4 median=10714ms min=9943ms max=12762ms  GREEN
-  alloc-sort             runs=4 median=10545ms min=9805ms max=10996ms  GREEN
-  warm-tail              runs=4 median=13625ms min=13282ms max=13729ms  GREEN
-  pkg-alloc-front        runs=4 median=10515ms min=10058ms max=10691ms  GREEN
-  pkg-rt-front           runs=4 median=10373ms min=10135ms max=11171ms  GREEN
-  intra-warmup           runs=4 median=13656ms min=13009ms max=14477ms  GREEN
-  naive-5                  runs=4 median=12597ms min=12028ms max=13235ms  GREEN
+  initial                runs=10 median=26565ms min=25222ms max=27803ms  GREEN
+  alloc-front+warm-tail  runs=10 median=21663ms min=20185ms max=22740ms  GREEN
+  pkg-rt-front           runs=10 median=20368ms min=19478ms max=20773ms  GREEN
+  naive                  runs=10 median=25665ms min=23862ms max=26879ms  GREEN
+  pkg-alloc-front        runs=10 median=20147ms min=19741ms max=20468ms  GREEN
 
-  alloc-front            +22.2% vs initial
-  jit-sort              +19.7% vs initial
-  jfr-warmup-front       +5.9% vs initial
-  pkg-alloc+observed-intra +21.1% vs initial
-  alloc-front+warm-tail  +20.8% vs initial
-  alloc-sort             +22.0% vs initial
-  warm-tail              -0.7% vs initial
-  pkg-alloc-front        +22.3% vs initial
+  alloc-front+warm-tail  +18.5% vs initial
   pkg-rt-front           +23.3% vs initial
-  intra-warmup           -1.0% vs initial
-  naive-5                  +6.9% vs initial
+  naive                  +3.4% vs initial
+  pkg-alloc-front        +24.2% vs initial
 
-=> SHIP: pkg-rt-front  (10373ms, 23.3% faster than initial) [green]
+=> SHIP: pkg-alloc-front  (20147ms, 24.2% faster than initial) [green]
+
+=== EXCLUDED (failed early, not measured/reported) ===
+  jit-sort               new failure - com.github.javaparser.ast.visitor.TreeVisitorTest
+  rt-heavy-tail          discarded after 2 rounds (not in top 3) (59149ms over 2 rounds, top-3 cutoff 41955ms)
+  alloc-sort             discarded after 2 rounds (not in top 3) (43226ms over 2 rounds, top-3 cutoff 41955ms)
+
+=== WILCOXON SIGNED-RANK (paired per round, vs initial) ===
+  alloc-front+warm-tail  n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +18.8% vs initial  SIGNIFICANT@0.05
+  pkg-rt-front           n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +23.6% vs initial  SIGNIFICANT@0.05
+  naive                  n=10  W+=52.0 W-=3.0  p=0.0098 (exact)  median +3.5% vs initial  SIGNIFICANT@0.05
+  pkg-alloc-front        n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +24.1% vs initial  SIGNIFICANT@0.05
 ```
 
 ## commons-text (corrected 2026-07-09 — kill-9 truncation fixed)
@@ -174,117 +174,178 @@ did not hold.)
 ```
 (10-round Wilcoxon re-test: pkg-alloc-front −0.05% vs initial, p=0.415 — **not significant**.)
 
-## javaparser (symbol-solver-testing) — corrected 2026-07-13
-
-10-round paired Wilcoxon from local `.csto2/wilcoxon/measure.jsonl`. The previous block here
-used stale `select`-phase data (runs=8, initial median=22028ms, alloc-sort +11.1%) from an
-unknown environment; see git history.
+## javaparser (symbol-solver-testing)
 
 ```
 === CANDIDATE MEASUREMENTS ===
-  alloc-sort             runs=10 median=10850ms min=8390ms max=11211ms  GREEN
-  initial                runs=10 median=11434ms min=10856ms max=12638ms  GREEN
-  naive                  runs=10 median=11380ms min=10984ms max=12511ms  GREEN
+  initial                runs=10 median=31665ms min=29766ms max=35217ms  GREEN
+  alloc-front+warm-tail  runs=10 median=26330ms min=25454ms max=31235ms  GREEN
+  naive                  runs=10 median=29698ms min=26247ms max=32469ms  GREEN
+  rt-heavy-tail          runs=10 median=27181ms min=26074ms max=32639ms  GREEN
+  pkg-alloc-front        runs=10 median=29997ms min=27485ms max=33920ms  GREEN
 
-  alloc-sort             +5.1% vs initial
-  naive                  +0.5% vs initial
+  alloc-front+warm-tail  +16.8% vs initial
+  naive                  +6.2% vs initial
+  rt-heavy-tail          +14.2% vs initial
+  pkg-alloc-front        +5.3% vs initial
 
-=> SHIP: alloc-sort  (10850ms, 5.1% faster than initial) [green]
+=> SHIP: alloc-front+warm-tail  (26330ms, 16.8% faster than initial) [green]
+
+=== EXCLUDED (failed early, not measured/reported) ===
+  pkg-rt-front           discarded after 2 rounds (not in top 3) (60997ms over 2 rounds, top-3 cutoff 57527ms)
+  alloc-sort             discarded after 2 rounds (not in top 3) (57955ms over 2 rounds, top-3 cutoff 57527ms)
+  jit-sort               discarded after 2 rounds (not in top 3) (63512ms over 2 rounds, top-3 cutoff 57527ms)
 
 === WILCOXON SIGNED-RANK (paired per round, vs initial) ===
-  alloc-sort             n=10  W+=54.0 W-=1.0  p=0.0039 (exact)  median +5.1% vs initial  SIGNIFICANT@0.05
-  naive                  n=10  W+=35.0 W-=20.0  p=0.4922 (exact)  median +0.5% vs initial  n.s.
+  alloc-front+warm-tail  n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +16.4% vs initial  SIGNIFICANT@0.05
+  naive                  n=10  W+=53.0 W-=2.0  p=0.0059 (exact)  median +9.5% vs initial  SIGNIFICANT@0.05
+  rt-heavy-tail          n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +13.8% vs initial  SIGNIFICANT@0.05
+  pkg-alloc-front        n=10  W+=54.0 W-=1.0  p=0.0039 (exact)  median +6.6% vs initial  SIGNIFICANT@0.05
+```
+
+## netty (transport-native-epoll)
+
+```
+=== CANDIDATE MEASUREMENTS ===
+  initial                runs=10 median=631728ms min=630227ms max=635907ms  GREEN
+  alloc-front+warm-tail  runs=10 median=635887ms min=631544ms max=638555ms  GREEN
+  pkg-rt-front           runs=10 median=632450ms min=631255ms max=635788ms  GREEN
+  naive                  runs=10 median=632332ms min=630250ms max=634246ms  GREEN
+  rt-heavy-tail          runs=10 median=631166ms min=628701ms max=633798ms  GREEN
+
+  alloc-front+warm-tail  -0.7% vs initial
+  pkg-rt-front           -0.1% vs initial
+  naive                  -0.1% vs initial
+  rt-heavy-tail          +0.1% vs initial
+
+=> SHIP: initial  (631166ms, 0.1% faster than initial) [green]
+
+=== EXCLUDED (failed early, not measured/reported) ===
+  pkg-alloc-front        discarded after 2 rounds (not in top 3) (1266007ms over 2 rounds, top-3 cutoff 1263262ms)
+  alloc-sort             discarded after 2 rounds (not in top 3) (1476398ms over 2 rounds, top-3 cutoff 1263262ms)
+  jit-sort               discarded after 2 rounds (not in top 3) (1456493ms over 2 rounds, top-3 cutoff 1263262ms)
+
+=== WILCOXON SIGNED-RANK (paired per round, vs initial) ===
+  alloc-front+warm-tail  n=10  W+=11.0 W-=44.0  p=0.1055 (exact)  median -0.6% vs initial  n.s.
+  pkg-rt-front           n=10  W+=26.0 W-=29.0  p=0.9219 (exact)  median -0.1% vs initial  n.s.
+  naive                  n=9  W+=26.0 W-=19.0  p=0.7344 (exact)  median -0.1% vs initial  n.s.
+  rt-heavy-tail          n=10  W+=48.0 W-=7.0  p=0.0371 (exact)  median +0.2% vs initial  SIGNIFICANT@0.05
 ```
 
 ## netty (transport)
 
 ```
 === CANDIDATE MEASUREMENTS ===
-  alloc-front+warm-tail  runs=10 median=65424ms min=64395ms max=65604ms  GREEN
-  alloc-sort             runs=10 median=65398ms min=64400ms max=65796ms  GREEN
-  initial                runs=10 median=65407ms min=64375ms max=65451ms  GREEN
-  jit-sort               runs=10 median=65424ms min=65312ms max=65846ms  GREEN
-  naive-5                  runs=10 median=65391ms min=65336ms max=65791ms  GREEN
-  pkg-alloc-front        runs=10 median=65358ms min=65314ms max=65812ms  GREEN
-  pkg-rt-front           runs=10 median=65410ms min=65331ms max=65817ms  GREEN
-  rt-heavy-tail          runs=10 median=65413ms min=64337ms max=65493ms  GREEN
+  initial                runs=10 median=56272ms min=55105ms max=56468ms  GREEN
+  alloc-sort             runs=10 median=56037ms min=55112ms max=56330ms  GREEN
+  alloc-front+warm-tail  runs=10 median=56063ms min=55880ms max=56337ms  GREEN
+  pkg-rt-front           runs=10 median=56015ms min=54978ms max=56309ms  GREEN
+  naive                  runs=10 median=56035ms min=54998ms max=56186ms  GREEN
 
-  alloc-front+warm-tail  -0.0% vs initial
-  alloc-sort             +0.0% vs initial
-  jit-sort               -0.0% vs initial
-  naive-5                  +0.0% vs initial
-  pkg-alloc-front        +0.1% vs initial
-  pkg-rt-front           -0.0% vs initial
-  rt-heavy-tail          -0.0% vs initial
+  alloc-sort             +0.4% vs initial
+  alloc-front+warm-tail  +0.4% vs initial
+  pkg-rt-front           +0.5% vs initial
+  naive                  +0.4% vs initial
 
-=> SHIP: initial  (65407ms, 0.0% faster than initial) [green]
+=> SHIP: initial  (56015ms, 0.5% faster than initial) [green]
+
+=== EXCLUDED (failed early, not measured/reported) ===
+  pkg-alloc-front        discarded after 2 rounds (not in top 3) (112455ms over 2 rounds, top-3 cutoff 112324ms)
+  rt-heavy-tail          discarded after 2 rounds (not in top 3) (112737ms over 2 rounds, top-3 cutoff 112324ms)
+  jit-sort               discarded after 2 rounds (not in top 3) (113033ms over 2 rounds, top-3 cutoff 112324ms)
 
 === WILCOXON SIGNED-RANK (paired per round, vs initial) ===
-  alloc-front+warm-tail  n=10  W+=19.0 W-=36.0  p=0.4316 (exact)  median -0.1% vs initial  n.s.
-  alloc-sort             n=10  W+=23.0 W-=32.0  p=0.6953 (exact)  median -0.0% vs initial  n.s.
-  jit-sort               n=10  W+=15.0 W-=40.0  p=0.2324 (exact)  median -0.1% vs initial  n.s.
-  naive-5                  n=10  W+=24.0 W-=31.0  p=0.7695 (exact)  median -0.1% vs initial  n.s.
-  pkg-alloc-front        n=10  W+=23.0 W-=32.0  p=0.6953 (exact)  median -0.1% vs initial  n.s.
-  pkg-rt-front           n=10  W+=13.0 W-=42.0  p=0.1602 (exact)  median -0.1% vs initial  n.s.
-  rt-heavy-tail          n=10  W+=27.0 W-=28.0  p=1.0000 (exact)  median -0.0% vs initial  n.s.
+  alloc-sort             n=10  W+=53.0 W-=2.0  p=0.0059 (exact)  median +0.3% vs initial  SIGNIFICANT@0.05
+  alloc-front+warm-tail  n=10  W+=32.0 W-=23.0  p=0.6953 (exact)  median +0.3% vs initial  n.s.
+  pkg-rt-front           n=10  W+=45.0 W-=10.0  p=0.0840 (exact)  median +1.1% vs initial  n.s.
+  naive                  n=10  W+=36.0 W-=19.0  p=0.4316 (exact)  median +0.3% vs initial  n.s.
+```
+
+## netty (handler)
+
+```
+=== CANDIDATE MEASUREMENTS ===
+  initial                runs=10 median=292817ms min=289815ms max=296368ms  GREEN
+  alloc-sort             runs=10 median=292889ms min=286970ms max=311772ms  GREEN
+  alloc-front+warm-tail  runs=10 median=293441ms min=289071ms max=300601ms  GREEN
+  naive                  runs=10 median=290310ms min=281622ms max=290940ms  GREEN
+  rt-heavy-tail          runs=10 median=291496ms min=283853ms max=294010ms  GREEN
+
+  alloc-sort             -0.0% vs initial
+  alloc-front+warm-tail  -0.2% vs initial
+  naive                  +0.9% vs initial
+  rt-heavy-tail          +0.5% vs initial
+
+=> SHIP: initial  (290310ms, 0.9% faster than initial) [green]
+
+=== EXCLUDED (failed early, not measured/reported) ===
+  pkg-alloc-front        discarded after 2 rounds (not in top 3) (585274ms over 2 rounds, top-3 cutoff 581446ms)
+  pkg-rt-front           discarded after 2 rounds (not in top 3) (581682ms over 2 rounds, top-3 cutoff 581446ms)
+  jit-sort               discarded after 2 rounds (not in top 3) (582617ms over 2 rounds, top-3 cutoff 581446ms)
+
+=== WILCOXON SIGNED-RANK (paired per round, vs initial) ===
+  alloc-sort             n=10  W+=29.0 W-=26.0  p=0.9219 (exact)  median +0.1% vs initial  n.s.
+  alloc-front+warm-tail  n=10  W+=16.0 W-=39.0  p=0.2754 (exact)  median -0.1% vs initial  n.s.
+  naive                  n=10  W+=52.0 W-=3.0  p=0.0098 (exact)  median +1.0% vs initial  SIGNIFICANT@0.05
+  rt-heavy-tail          n=10  W+=42.0 W-=13.0  p=0.1602 (exact)  median +0.5% vs initial  n.s.
 ```
 
 ## async-http-client (client)
 
 ```
 === CANDIDATE MEASUREMENTS ===
-  initial                runs=10 median=240761ms min=240045ms max=241926ms  GREEN
-  alloc-sort             runs=10 median=241088ms min=239552ms max=242521ms  GREEN
-  pkg-rt-front           runs=10 median=241223ms min=240179ms max=242328ms  GREEN
-  naive-5                  runs=10 median=241109ms min=240314ms max=241949ms  GREEN
-  pkg-alloc-front        runs=10 median=240871ms min=240361ms max=242014ms  GREEN
+  initial                runs=10 median=202993ms min=199894ms max=204631ms  GREEN
+  alloc-front+warm-tail  runs=10 median=201592ms min=200229ms max=202433ms  GREEN
+  naive                  runs=10 median=201541ms min=200594ms max=204508ms  GREEN
+  rt-heavy-tail          runs=10 median=201662ms min=199995ms max=204097ms  GREEN
+  pkg-alloc-front        runs=10 median=203713ms min=200909ms max=205225ms  GREEN
 
-  alloc-sort             -0.1% vs initial
-  pkg-rt-front           -0.2% vs initial
-  naive-5                  -0.1% vs initial
-  pkg-alloc-front        -0.0% vs initial
+  alloc-front+warm-tail  +0.7% vs initial
+  naive                  +0.7% vs initial
+  rt-heavy-tail          +0.7% vs initial
+  pkg-alloc-front        -0.4% vs initial
 
-=> SHIP: initial  (240761ms, 0.0% faster than initial) [green]
+=> SHIP: initial  (201541ms, 0.7% faster than initial) [green]
 
 === EXCLUDED (failed early, not measured/reported) ===
-  alloc-front+warm-tail  discarded after round 0 (not in top 3)
-  jit-sort               discarded after round 0 (not in top 3)
-  rt-heavy-tail          discarded after round 0 (not in top 3)
+  pkg-rt-front           discarded after 2 rounds (not in top 3) (405181ms over 2 rounds, top-3 cutoff 403470ms)
+  alloc-sort             discarded after 2 rounds (not in top 3) (409483ms over 2 rounds, top-3 cutoff 403470ms)
+  jit-sort               discarded after 2 rounds (not in top 3) (406547ms over 2 rounds, top-3 cutoff 403470ms)
 
 === WILCOXON SIGNED-RANK (paired per round, vs initial) ===
-  alloc-sort             n=10  W+=19.0 W-=36.0  p=0.4316 (exact)  median -0.2% vs initial  n.s.
-  pkg-rt-front           n=10  W+=16.0 W-=39.0  p=0.2754 (exact)  median -0.2% vs initial  n.s.
-  naive-5                  n=10  W+=14.0 W-=41.0  p=0.1934 (exact)  median -0.2% vs initial  n.s.
-  pkg-alloc-front        n=10  W+=20.0 W-=35.0  p=0.4922 (exact)  median -0.1% vs initial  n.s.
+  alloc-front+warm-tail  n=10  W+=43.0 W-=12.0  p=0.1309 (exact)  median +0.5% vs initial  n.s.
+  naive                  n=10  W+=32.0 W-=23.0  p=0.6953 (exact)  median +0.5% vs initial  n.s.
+  rt-heavy-tail          n=10  W+=42.0 W-=13.0  p=0.1602 (exact)  median +0.6% vs initial  n.s.
+  pkg-alloc-front        n=10  W+=11.0 W-=44.0  p=0.1055 (exact)  median -0.2% vs initial  n.s.
 ```
 
 ## curator (curator-framework)
 
 ```
 === CANDIDATE MEASUREMENTS ===
-  initial                runs=10 median=510889ms min=498445ms max=562842ms  GREEN
-  alloc-sort             runs=10 median=509544ms min=503802ms max=560041ms  GREEN
-  pkg-rt-front           runs=10 median=511399ms min=509129ms max=560425ms  GREEN
-  naive-5                  runs=10 median=509202ms min=508042ms max=513435ms  GREEN
-  pkg-alloc-front        runs=10 median=510052ms min=493301ms max=512381ms  GREEN
+  initial                runs=10 median=480507ms min=473833ms max=484103ms  GREEN
+  alloc-front+warm-tail  runs=10 median=479902ms min=475879ms max=482796ms  GREEN
+  naive                  runs=10 median=482077ms min=478893ms max=489596ms  GREEN
+  rt-heavy-tail          runs=10 median=480011ms min=477703ms max=490318ms  GREEN
+  pkg-alloc-front        runs=10 median=479992ms min=471820ms max=490319ms  GREEN
 
-  alloc-sort             +0.3% vs initial
-  pkg-rt-front           -0.1% vs initial
-  naive-5                  +0.3% vs initial
-  pkg-alloc-front        +0.2% vs initial
+  alloc-front+warm-tail  +0.1% vs initial
+  naive                  -0.3% vs initial
+  rt-heavy-tail          +0.1% vs initial
+  pkg-alloc-front        +0.1% vs initial
 
-=> SHIP: initial  (509202ms, 0.3% faster than initial) [green]
+=> SHIP: initial  (479902ms, 0.1% faster than initial) [green]
 
 === EXCLUDED (failed early, not measured/reported) ===
-  alloc-front+warm-tail  discarded after round 0 (not in top 3)
-  jit-sort               discarded after round 0 (not in top 3)
-  rt-heavy-tail          discarded after round 0 (not in top 3)
+  pkg-rt-front           discarded after 2 rounds (not in top 3) (964602ms over 2 rounds, top-3 cutoff 959186ms)
+  alloc-sort             discarded after 2 rounds (not in top 3) (960123ms over 2 rounds, top-3 cutoff 959186ms)
+  jit-sort               discarded after 2 rounds (not in top 3) (964834ms over 2 rounds, top-3 cutoff 959186ms)
 
 === WILCOXON SIGNED-RANK (paired per round, vs initial) ===
-  alloc-sort             n=10  W+=27.0 W-=28.0  p=1.0000 (exact)  median +0.2% vs initial  n.s.
-  pkg-rt-front           n=10  W+=13.0 W-=42.0  p=0.1602 (exact)  median -0.1% vs initial  n.s.
-  naive-5                  n=10  W+=26.0 W-=29.0  p=0.9219 (exact)  median +0.3% vs initial  n.s.
-  pkg-alloc-front        n=10  W+=28.0 W-=27.0  p=1.0000 (exact)  median +0.2% vs initial  n.s.
+  alloc-front+warm-tail  n=10  W+=28.0 W-=27.0  p=1.0000 (exact)  median +0.1% vs initial  n.s.
+  naive                  n=10  W+=8.0 W-=47.0  p=0.0488 (exact)  median -0.4% vs initial  SIGNIFICANT@0.05
+  rt-heavy-tail          n=10  W+=18.0 W-=37.0  p=0.3750 (exact)  median +0.1% vs initial  n.s.
+  pkg-alloc-front        n=10  W+=28.0 W-=27.0  p=1.0000 (exact)  median +0.3% vs initial  n.s.
 ```
 
 ## paimon (paimon-core)
@@ -295,7 +356,7 @@ unknown environment; see git history.
   alloc-sort             runs=10 median=708054ms min=628160ms max=734611ms  GREEN
   alloc-front+warm-tail  runs=10 median=948022ms min=851597ms max=978736ms  GREEN
   pkg-rt-front           runs=10 median=750838ms min=683120ms max=873810ms  GREEN
-  naive-5                  runs=10 median=786869ms min=738443ms max=831151ms  GREEN
+  naive                  runs=10 median=786869ms min=738443ms max=831151ms  GREEN
   jit-sort               runs=10 median=735059ms min=702534ms max=763427ms  GREEN
   rt-heavy-tail          runs=10 median=934336ms min=864407ms max=1013744ms  GREEN
   pkg-alloc-front        runs=10 median=756521ms min=711734ms max=855275ms  GREEN
@@ -303,7 +364,7 @@ unknown environment; see git history.
   alloc-sort             +23.6% vs initial
   alloc-front+warm-tail  -2.3% vs initial
   pkg-rt-front           +19.0% vs initial
-  naive-5                  +15.1% vs initial
+  naive                  +15.1% vs initial
   jit-sort               +20.7% vs initial
   rt-heavy-tail          -0.8% vs initial
   pkg-alloc-front        +18.3% vs initial
@@ -314,7 +375,7 @@ unknown environment; see git history.
   alloc-sort             n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +23.9% vs initial  SIGNIFICANT@0.05
   alloc-front+warm-tail  n=10  W+=19.0 W-=36.0  p=0.4316 (exact)  median -1.7% vs initial  n.s.
   pkg-rt-front           n=10  W+=54.0 W-=1.0  p=0.0039 (exact)  median +20.0% vs initial  SIGNIFICANT@0.05
-  naive-5                  n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +15.8% vs initial  SIGNIFICANT@0.05
+  naive                  n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +15.8% vs initial  SIGNIFICANT@0.05
   jit-sort               n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +20.7% vs initial  SIGNIFICANT@0.05
   rt-heavy-tail          n=10  W+=29.0 W-=26.0  p=0.9219 (exact)  median -0.2% vs initial  n.s.
   pkg-alloc-front        n=10  W+=55.0 W-=0.0  p=0.0020 (exact)  median +18.3% vs initial  SIGNIFICANT@0.05
@@ -324,28 +385,27 @@ unknown environment; see git history.
 
 ```
 === CANDIDATE MEASUREMENTS ===
-  initial                runs=10 median=13232ms min=13113ms max=14012ms  GREEN
-  pkg-rt-front           runs=10 median=13542ms min=13140ms max=14273ms  GREEN
-  naive-5                runs=10 median=13455ms min=13047ms max=14210ms  GREEN
-  rt-heavy-tail          runs=10 median=13396ms min=13138ms max=13749ms  GREEN
-  pkg-alloc-front        runs=10 median=13265ms min=13154ms max=13843ms  GREEN
+  initial                runs=10 median=5921ms min=5388ms max=6512ms  GREEN
+  pkg-rt-front           runs=10 median=5656ms min=5085ms max=6003ms  GREEN
+  naive                  runs=10 median=5822ms min=5409ms max=6348ms  GREEN
+  rt-heavy-tail          runs=10 median=5945ms min=5285ms max=6357ms  GREEN
+  pkg-alloc-front        runs=10 median=5690ms min=5235ms max=6049ms  GREEN
 
-  pkg-rt-front           -2.3% vs initial
-  naive-5                -1.7% vs initial
-  rt-heavy-tail          -1.2% vs initial
-  pkg-alloc-front        -0.2% vs initial
+  pkg-rt-front           +4.5% vs initial
+  naive                  +1.7% vs initial
+  rt-heavy-tail          -0.4% vs initial
+  pkg-alloc-front        +3.9% vs initial
 
-=> SHIP: initial  (13232ms, 0.0% faster than initial) [green]
+=> SHIP: pkg-rt-front  (5656ms, 4.5% faster than initial) [green]
 
 === EXCLUDED (failed early, not measured/reported) ===
-  alloc-sort             discarded after round 0 (not in top 3)
-  alloc-front+warm-tail  discarded after round 0 (not in top 3)
-  jit-sort               discarded after round 0 (not in top 3)
+  alloc-front+warm-tail  discarded after 2 rounds (not in top 3) (12689ms over 2 rounds, top-3 cutoff 11085ms)
+  alloc-sort             discarded after 2 rounds (not in top 3) (11551ms over 2 rounds, top-3 cutoff 11085ms)
+  jit-sort               discarded after 2 rounds (not in top 3) (12315ms over 2 rounds, top-3 cutoff 11085ms)
 
 === WILCOXON SIGNED-RANK (paired per round, vs initial) ===
-  pkg-rt-front           n=10  W+=13.0 W-=42.0  p=0.1602 (exact)  median -1.9% vs initial  n.s.
-  naive-5                n=10  W+=11.0 W-=44.0  p=0.1055 (exact)  median -1.6% vs initial  n.s.
-  rt-heavy-tail          n=10  W+=25.0 W-=30.0  p=0.8457 (exact)  median -0.5% vs initial  n.s.
-  pkg-alloc-front        n=10  W+=25.0 W-=30.0  p=0.8457 (exact)  median -0.2% vs initial  n.s.
+  pkg-rt-front           n=10  W+=48.0 W-=7.0  p=0.0371 (exact)  median +5.9% vs initial  SIGNIFICANT@0.05
+  naive                  n=10  W+=32.0 W-=23.0  p=0.6953 (exact)  median +1.9% vs initial  n.s.
+  rt-heavy-tail          n=10  W+=30.0 W-=25.0  p=0.8457 (exact)  median +1.0% vs initial  n.s.
+  pkg-alloc-front        n=10  W+=46.0 W-=9.0  p=0.0645 (exact)  median +4.4% vs initial  n.s.
 ```
-
