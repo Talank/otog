@@ -15,7 +15,7 @@ A real optimizer win must be **significant vs initial** _and_ **significant vs n
 | 29 | netty/netty | transport | pkg-rt-front | 56215ms | 56034ms | 1.1% | 0.8% | 0.0840 | 0.3750 | ✗ |  |
 | 33 | netty/netty | handler | rt-heavy-tail | 292800ms | 289802ms | 0.5% | -0.6% | 0.1602 | 0.1602 | ✗ |  |
 | 1305 | AsyncHttpClient/async-http-client | client | rt-heavy-tail | 202590ms | 201482ms | 0.6% | 0.1% | 0.1602 | 0.1602 | ✗ |  |
-| 3320 | apache/curator | curator-recipes | — | — | — | — | — | — | — | pending |  |
+| 3320 | apache/curator | curator-recipes | rt-heavy-tail | 1799613ms | 1778795ms | 1.2% | -0.8% | 0.2324 | 1.0000 | ✗ | Naïve-5 recovered from logs (n=6) |
 | 3323 | apache/curator | curator-framework | pkg-alloc-front | 480137ms | 481944ms | 0.3% | 0.7% | 1.0000 | 0.3750 | ✗ |  |
 | 3613 | apache/paimon | paimon-core | alloc-sort | 925663ms | 779205ms | 23.9% | 9.6% | 0.0020 | 0.0020 | ✓ both |  |
 | 1778 | spring-projects/spring-ai | spring-ai-openai | pkg-rt-front | 5918ms | 5804ms | 5.9% | 4.0% | 0.0371 | 0.0840 | ✓ init |  |
@@ -330,6 +330,37 @@ did not hold.)
   rt-heavy-tail          n=10  W+=42.0 W-=13.0  p=0.1602 (exact)  median +0.6% vs initial  n.s.
   pkg-alloc-front        n=10  W+=11.0 W-=44.0  p=0.1055 (exact)  median -0.2% vs initial  n.s.
 ```
+
+## curator (curator-recipes)
+
+```
+=== CANDIDATE MEASUREMENTS ===
+  initial                runs=10 median=1799613ms min=1728007ms max=1811774ms  GREEN
+  alloc-sort             runs=10 median=1809609ms min=1743331ms max=1833250ms  GREEN
+  rt-heavy-tail          runs=10 median=1785998ms min=1697780ms max=1800058ms  GREEN
+
+  alloc-sort             -0.6% vs initial
+  rt-heavy-tail          +0.8% vs initial
+
+=> SHIP: initial  (1785998ms, 0.8% faster than initial) [green]
+
+=== EXCLUDED (failed early, not measured/reported) ===
+  pkg-alloc-front        discarded after 2 rounds (not in top 3)
+  pkg-rt-front           discarded after 2 rounds (not in top 3)
+  jit-sort               discarded after 2 rounds (not in top 3)
+  naive                  new failure*
+  alloc-front+warm-tail  new failure*
+
+=== WILCOXON SIGNED-RANK (paired per round, vs initial) ===
+  alloc-sort             n=10  W+=20.0 W-=35.0  p=0.4922 (exact)  median +0.0% vs initial  n.s.
+  rt-heavy-tail          n=10  W+=40.0 W-=15.0  p=0.2324 (exact)  median +1.1% vs initial  n.s.
+```
+
+\* Not test failures — no test failed in any round. Both were crashed forks on that candidate's final
+round (`alloc-front+warm-tail` produced 19 of 53 classes, `naive` 34 of 53), consistent with the
+ZooKeeper port race seen on 3323. Recovering their green rounds from `select/logs/` does not change the
+verdict: `alloc-front+warm-tail` +0.91% (p=0.5469, n=8), `naive` -0.28% (p=1.0000, n=6). Nothing here is
+measurable anyway — `initial` varies 4.7% across its own rounds, so a ~1% effect is inside the noise.
 
 ## curator (curator-framework)
 
