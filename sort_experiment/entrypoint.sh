@@ -61,7 +61,10 @@ for A in junit-platform-engine junit-platform-launcher; do
                    J="$HOME/.m2/repository/org/junit/platform/$A/$PV/$A-$PV.jar"; }
   DEPS="$DEPS:$J"
 done
-javac -cp "$DEPS" -d "$MODP/target/test-classes" /opt/csto/sortexp/MethodAllocListener.java
+# Compile with the module's measurement JDK so the listener's bytecode runs in the Surefire fork
+# (the container default javac is newer than the measurement JVM -> UnsupportedClassVersionError).
+JAVAC="${JAVA_HOME:+$JAVA_HOME/bin/}javac"
+"$JAVAC" -cp "$DEPS" -d "$MODP/target/test-classes" /opt/csto/sortexp/MethodAllocListener.java
 mkdir -p "$MODP/target/test-classes/META-INF/services"
 echo "sortexp.MethodAllocListener" \
   > "$MODP/target/test-classes/META-INF/services/org.junit.platform.launcher.TestExecutionListener"
