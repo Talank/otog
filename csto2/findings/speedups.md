@@ -5,9 +5,11 @@ Per-project `select` winners, re-tested with a two-sided Wilcoxon signed-rank te
 A real optimizer win must be **significant vs initial** _and_ **significant vs naïve-5**
 (the fastest trivially-traced order).
 
+Initial is the `mvn test` order. Naïve-5 is the best of 5 shuffled orders.
+
 ## Paper eval dataset (prior research)
 
-| ID | Project | Module | Strategy | Initial | Naïve-5 | Δ Initial | Δ Naïve-5 | p (init) | p (n-5) | Sig? | Notes |
+| ID | Project | Module | Strategy | Initial | Naïve-5 | Optimal V. Initial | Naïve-5 V. Initial | p (init) | p (n-5) | Sig? | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1683 | javaparser/javaparser | symbol-solver-testing | alloc-front+warm-tail | 31501ms | 28496ms | 16.4% | 7.6% | 0.0020 | 0.0039 | ✓ both |  |
 | 1685 | javaparser/javaparser | core-testing | pkg-alloc-front | 26536ms | 25617ms | 24.1% | 21.4% | 0.0020 | 0.0020 | ✓ both |  |
@@ -22,7 +24,7 @@ A real optimizer win must be **significant vs initial** _and_ **significant vs n
 
 ## Additional projects
 
-| Project | Module | Strategy | Initial | Naïve-5 | Δ Initial | Δ Naïve-5 | p (init) | p (n-5) | Notes |
+| Project | Module | Strategy | Initial | Naïve-5 | Optimal V. Initial | Optimal V. Naive-5 | p (init) | p (n-5) | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | apache/commons-csv | — | alloc-front+warm-tail | 12220ms | 11392ms | 16.8% | 6.8% | 0.008 | n/a | Naïve-5 re-test pending |
 | apache/commons-text | — | jit-sort | 17370ms | 16031ms | 12.9% | 7.7% | 0.0020 | 0.0488 | Corrected 2026-07-09; kill-9 truncation fix |
