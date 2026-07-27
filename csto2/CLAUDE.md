@@ -100,10 +100,7 @@ The two backends share the `OrderRunner` interface (`runOrder` / `run`).
   fired** (binary search over per-class windows the listener marks). This distinguishes what MXBean
   counters confound: young vs **old/full** GC (full GCs are placement-sensitive), and **unique
   first-loads** vs shared class loads. Output: `jfr/<order>.jfr.jsonl`, one facts row per class.
-- **`TestDiscovery`** (`com.csto2.trace`) — the surviving piece of the old TraceRunner: reflection-only
-  class filtering (concrete + has an `@Test`/`@RunWith`/TestNG marker, inherited included). Never
-  executes tests, so no fidelity issue. Used by the `discover` command via `--discover` (and
-  `--explain <class>` as a failure-inspection aid).
+
 
 > **Caveats:** the agent's classpath-append relies on `useSystemClassLoader=true` (Surefire default).
 > `-Dtest` listing a class *overrides* the pom's `<excludes>`, so discovery does not yet honor excludes.
@@ -113,8 +110,8 @@ The two backends share the `OrderRunner` interface (`runOrder` / `run`).
 Each is a method behind the `switch` in `Csto2.main`. The measuring commands (trace/select/validate)
 build their runner via `makeRunner`, which is **Surefire-only** and needs the testorder fork
 (`--surefire-ext`, else auto-located in `~/.m2`) + the agent (auto-located beside `csto2.jar`, or
-`--agent`). Common flags: `--cp` (target classpath; used to infer the module dir), `--tests <file>`,
-`--out <dir>`, `--workdir <module dir>`, `--mvn <bin>`.
+`--agent`). Common flags: `--tests <file>`, `--out <dir>`, `--workdir <module dir>`, `--mvn <bin>`.
+The legacy `--cp` flag is fully retired since Surefire handles its own classpaths natively.
 
 **Agent is for discovery, not for the ship decision.** `makeRunner(…, attachAgent)` takes a flag.
 Discovery phases (trace, JFR classification, producer→consumer pair confirmation) attach the agent —
@@ -126,21 +123,20 @@ without losing anything.
 
 1. **`analyze --app <cp> [--lib <cp>] --tests <file> [--out <dir>]`** — static pass → `static-facts.jsonl`
    + `static-edges.json`. (Uses `--app`/`--lib`, **not** `--cp`. In-process WALA, no Surefire.)
-2. **`discover --cp --tests --out`** — runs `TestDiscovery --discover` in the target JVM to filter a
-   candidate list down to actually-runnable test classes (reflection only).
-3. **`trace --cp --tests [--orders N=6] [--seed=1] [--out=.csto2/trace]`** — runs N orders through
+2. **`discover --out`** — natively discovers tests via a `mvn test` dry-run (via Surefire), parsing its reports to build the definitive `tests.runnable` list of classes while skipping red tests.
+3. **`trace --tests [--orders N=6] [--seed=1] [--out=.csto2/trace]`** — runs N orders through
    Surefire+agent → `trace.jsonl` + `jfr/` facts (JFR is always on via the agent). Calibration data.
-4. **`validate --cp --tests --trace <trace.jsonl> [--repeats=5]`** — calibrates the **slope model**
+4. **`validate --tests --trace <trace.jsonl> [--repeats=5]`** — calibrates the **slope model**
    (`OrderOptimizer`), emits `initial` vs `optimized` (slope-sorted) orders, and measures them
    **interleaved per repeat** (spreads background noise evenly), then reports median speedup.
-5. **`select --cp --tests --trace [--jfr-dir] [thresholds…]`** — the **main ship gate** (see below).
+5. **`select --tests --trace [--jfr-dir] [thresholds…]`** — the **main ship gate** (see below).
 
 ### Headless Orchestration (REPL Parity)
 
 CSTO v2 supports executing REPL actions non-interactively (headless) via persistent configuration. The Orchestrator automatically loads settings from `<out>/config.properties` (default `.csto2/config.properties`), overlays any command-line flags, runs the action, and persists the updated configuration back to disk.
 
-- **`project [--dir <dir>] [--out <dir>]`** — Autodetects Maven project configuration (classpath, test list, workdir) and writes to `config.properties`.
-- **`configure [--cp ...] [--tests ...] [--out ...] ...`** — Configures specific settings in `config.properties`.
+- **`project [--dir <dir>] [--out <dir>]`** — Autodetects Maven project configuration (workdir) and writes to `config.properties`.
+- **`configure [--tests ...] [--out ...] ...`** — Configures specific settings in `config.properties`.
 - **`state [--out <dir>]`** — Displays persisted configuration, exclusions, and candidate settings.
 - **`exclude <classes> | --exclude <classes> [--out <dir>]`** — Excludes classes and updates persisted `exclude.txt` and `config.properties`.
 - **`approaches <toggles> | --toggle <toggles> [--out <dir>]`** — Enables/disables candidate strategies and updates `skip-candidates.txt` and `config.properties`.
@@ -235,7 +231,7 @@ no longer csto2's job. Remaining knobs:
 - `--kp-argline "<args>"` — extra args prepended to the fork's argLine (on top of the agent).
 - `--workdir <dir>` — the Maven **module dir** to run (normally inferred as the parent of
   `target/test-classes`).
-- `--jvmargs "<args>"` / `--java <home>` — only affect the `discover` helper JVM now, not measurement.
+- **`jvmargs "<args>"` / `--java <home>`** — tuning args or alternative JVM (applied via Surefire).
 
 `select` thresholds: `--heavy-alloc-mb` (500), `--cold-slope` (-1.0), `--max-resid` (300),
 `--pair-consumer-mb` (1000), `--pair-producer-mb` (200), `--pair-drop-frac` (0.25), `--jfr-dir`,

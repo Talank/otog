@@ -2,7 +2,6 @@ package com.csto2.cli;
 
 import com.csto2.Csto2;
 import com.csto2.optimize.Candidates;
-import com.csto2.surefire.SurefireTestFilter;
 
 import java.io.File;
 import java.io.IOException;
@@ -39,7 +38,6 @@ public final class Orchestrator {
 
     /** Config keys offered by the 'configure' screen, with a one-line hint each. */
     public static final String[][] CONFIG_KEYS = {
-        {"cp", "target test+runtime classpath (discover/trace/select)"},
         {"tests", "file of fully-qualified test class names, one per line"},
         {"out", "base output dir (default .csto2)"},
         {"jvmargs", "extra child-JVM args as ONE value, e.g. \"--add-opens ... -Dfoo=bar\""},
@@ -116,10 +114,8 @@ public final class Orchestrator {
     // ---- stages ----------------------------------------------------------------------------------
 
     public void discover() throws Exception {
-        require("cp"); require("tests");
         Path runnable = baseDir().resolve("tests.runnable");
-        Map<String, String> a = args("cp", "jvmargs", "java", "workdir");
-        a.put("tests", cfg.get("tests"));
+        Map<String, String> a = args("jvmargs", "java", "workdir");
         a.put("out", runnable.toString());
         Csto2.dispatch("discover", a);
         cfg.put("tests", runnable.toString());
@@ -129,10 +125,10 @@ public final class Orchestrator {
 
 
     public void trace() throws Exception {
-        require("cp"); require("tests");
+        requireFile("tests");
         Path outDir = baseDir().resolve("trace");
         Path traceJsonl = outDir.resolve("trace.jsonl");
-        Map<String, String> a = args("cp", "jvmargs", "java", "workdir", "orders", "seed", "surefire-ext", "mvn", "kp-argline", "mvnopts");
+        Map<String, String> a = args("jvmargs", "java", "workdir", "orders", "seed", "surefire-ext", "mvn", "kp-argline", "mvnopts");
         a.put("tests", cfg.get("tests"));
         a.put("out", outDir.toString());
         Csto2.dispatch("trace", a);
@@ -201,8 +197,8 @@ public final class Orchestrator {
     }
 
     public void select() throws Exception {
-        require("cp"); require("tests"); requireFile("trace");
-        Map<String, String> a = args("cp", "trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "mvnopts", "skip-candidates", "heavy-k", "heavy-cap");
+        requireFile("tests"); requireFile("trace");
+        Map<String, String> a = args("trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "mvnopts", "skip-candidates", "heavy-k", "heavy-cap");
         a.put("tests", cfg.get("tests"));
         a.put("out", baseDir().resolve("select").toString());
         Csto2.dispatch("select", a);
@@ -453,94 +449,15 @@ public final class Orchestrator {
     public void loadProject(Path dir, Confirmer confirmer) throws Exception {
         if (!Files.exists(dir.resolve("pom.xml")))
             throw new IllegalStateException("no pom.xml at " + dir.toAbsolutePath() + " (Maven projects only)");
-        Path classes = dir.resolve("target/classes");
-        Path testClasses = dir.resolve("target/test-classes");
-        String mvn = mvnBin(dir);
 
-        if (!Files.isDirectory(testClasses)) {
-            boolean shouldCompile = confirmer.confirm("target/test-classes missing — run '" + mvn + " test-compile' now? (Y/n)");
-            // -Dmaven.build.cache.enabled=false: the Maven build-cache extension (e.g. Avro) reports
-            // BUILD SUCCESS by restoring from cache and SKIPS compiler:testCompile, so target/ is never
-            // written to disk. Disabling it forces a real compile that materializes target/test-classes.
-            if (shouldCompile)
-                runMvn(dir, mvn, "-q", "-Dmaven.build.cache.enabled=false", "test-compile");
-        }
-        if (!Files.isDirectory(testClasses))
-            throw new IllegalStateException("still no target/test-classes after test-compile — compile the "
-                    + "project manually (a build-cache extension may be skipping it; try "
-                    + "'mvn -Dmaven.build.cache.enabled=false test-compile')");
-
-        // Resolve the dependency classpath into a file, then prepend the project's own output dirs.
-        Files.createDirectories(baseDir());
-        Path depCp = baseDir().resolve("deps.classpath").toAbsolutePath();
-        System.out.println("[project] resolving dependency classpath (mvn)...");
-        runMvn(dir, mvn, "-q", "-Dmaven.build.cache.enabled=false", "dependency:build-classpath", "-Dmdep.outputFile=" + depCp);
-        String deps = Files.exists(depCp) ? Files.readString(depCp).trim() : "";
-        StringBuilder cp = new StringBuilder();
-        cp.append(testClasses.toAbsolutePath());
-        if (Files.isDirectory(classes)) cp.append(File.pathSeparator).append(classes.toAbsolutePath());
-        if (!deps.isEmpty()) cp.append(File.pathSeparator).append(deps);
-        String fullCp = ensureJUnitLauncher(cp.toString(), dir, mvn);
-        cfg.put("cp", fullCp);
-
-        // Candidate test list: top-level .class files under target/test-classes that Surefire would
-        // select per the module pom's <includes>/<excludes> (or Surefire's defaults when it sets none),
-        // so the candidate set matches what 'mvn test' runs rather than every compiled helper class.
-        SurefireTestFilter filter = SurefireTestFilter.fromPom(dir.resolve("pom.xml"));
-        List<String> names = new ArrayList<>();
-        int[] dropped = {0};
-        try (Stream<Path> s = Files.walk(testClasses)) {
-            s.filter(f -> f.toString().endsWith(".class"))
-             .map(f -> testClasses.relativize(f).toString().replace(File.separatorChar, '/'))
-             .filter(rel -> !rel.contains("$"))            // skip inner/anonymous classes
-             .sorted()
-             .forEach(rel -> {
-                 if (filter.matches(rel))
-                     names.add(rel.substring(0, rel.length() - ".class".length()).replace('/', '.'));
-                 else
-                     dropped[0]++;
-             });
-        }
-        Path testsFile = baseDir().resolve("tests.all").toAbsolutePath();
-        Files.write(testsFile, String.join("\n", names).getBytes(StandardCharsets.UTF_8));
-        cfg.put("tests", testsFile.toString());
         cfg.put("workdir", dir.toAbsolutePath().toString());
 
         System.out.printf("[project] %s%n", dir.toAbsolutePath());
-        System.out.printf("[project]   cp:    %d entries%n", fullCp.split(File.pathSeparator).length);
-        System.out.printf("[project]   surefire selectors: %d include(s) (%s), %d exclude(s)%n",
-                filter.includeGlobs.size(), filter.usedDefaultIncludes ? "surefire defaults" : "pom",
-                filter.excludeGlobs.size());
-        System.out.printf("[project]   tests: %d candidate classes (%d dropped by surefire selectors) -> %s%n",
-                names.size(), dropped[0], testsFile);
         System.out.printf("[project]   workdir: %s%n", dir.toAbsolutePath());
-        System.out.println("[project] next: run 'discover' to filter to runnable tests, then 'full pipeline'.");
+        System.out.println("[project] next: run 'discover' to find tests natively via 'mvn test', then 'full pipeline'.");
     }
 
-    private String ensureJUnitLauncher(String cp, Path dir, String mvn) throws Exception {
-        if (cp.contains("junit-platform-launcher")) return cp;
-        String anchor = null;
-        for (String e : cp.split(File.pathSeparator)) {
-            if (e.contains("junit-platform-commons")) { anchor = e; break; }
-            if (anchor == null && e.contains("junit-platform-engine")) anchor = e;
-        }
-        if (anchor == null) return cp;
-        Path launcher = Paths.get(anchor.replace("junit-platform-commons", "junit-platform-launcher")
-                                        .replace("junit-platform-engine", "junit-platform-launcher"));
-        if (!Files.exists(launcher)) {
-            String fn = launcher.getFileName().toString();
-            String ver = fn.substring("junit-platform-launcher-".length(), fn.length() - ".jar".length());
-            System.out.println("[project] fetching junit-platform-launcher:" + ver + " (Surefire-provided, not a project dep)...");
-            try { runMvn(dir, mvn, "-q", "dependency:get", "-Dartifact=org.junit.platform:junit-platform-launcher:" + ver); }
-            catch (Throwable t) { System.out.println("[warn] could not fetch junit-platform-launcher: " + t); }
-        }
-        if (Files.exists(launcher)) {
-            System.out.println("[project]   +junit-platform-launcher");
-            return cp + File.pathSeparator + launcher.toAbsolutePath();
-        }
-        System.out.println("[warn] junit-platform-launcher not on classpath; JUnit 5 trace runs will fail to find a runner.");
-        return cp;
-    }
+
 
     private static String mvnBin(Path dir) {
         boolean win = System.getProperty("os.name", "").toLowerCase().contains("win");

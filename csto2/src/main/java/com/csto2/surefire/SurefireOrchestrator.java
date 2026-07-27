@@ -190,6 +190,40 @@ public final class SurefireOrchestrator implements OrderRunner {
         return code;
     }
 
+    /** Run mvn test natively (without -Dtest or -Dsurefire.runOrder) to discover the project's tests */
+    public int runNative(String orderId, Path traceOut) throws Exception {
+        Path reportsDir = moduleDir.resolve("target/surefire-reports");
+        clearReports(reportsDir);
+
+        List<String> cmd = new ArrayList<>();
+        cmd.add(mvnBin);
+        cmd.add("initialize");
+        cmd.add("surefire:test");
+        cmd.add("-Dmaven.build.cache.enabled=false");
+        cmd.add("-Dmaven.test.failure.ignore=true");
+        for (String p : extraProps) cmd.add(p);
+        cmd.add("-DforkCount=1");
+        cmd.add("-DreuseForks=true");
+
+        ProcessBuilder pb = new ProcessBuilder(cmd).directory(moduleDir.toFile());
+        if (javaHome != null) pb.environment().put("JAVA_HOME", javaHome.toString());
+        Path logDir = outDir.resolve("logs");
+        Files.createDirectories(logDir);
+        pb.redirectErrorStream(true);
+        pb.redirectOutput(logDir.resolve("native_" + orderId + ".log").toFile());
+        int code = pb.start().waitFor();
+
+        List<Map<String, Object>> rows = parseReports(reportsDir, orderId, java.util.Collections.emptyMap());
+
+        if (traceOut.getParent() != null) Files.createDirectories(traceOut.getParent());
+        StringBuilder sb = new StringBuilder();
+        for (Map<String, Object> r : rows) sb.append(Json.write(r)).append('\n');
+        Files.write(traceOut, sb.toString().getBytes(StandardCharsets.UTF_8),
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+
+        return code;
+    }
+
     /** class FQN -> its index in the order file (the position the class ran at). */
     private static Map<String, Integer> readPositions(Path orderFile) throws Exception {
         Map<String, Integer> pos = new LinkedHashMap<>();

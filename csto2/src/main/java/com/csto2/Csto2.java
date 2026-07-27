@@ -7,12 +7,14 @@ import com.csto2.trace.OrderRunner;
 import com.csto2.surefire.SurefireOrchestrator;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -179,22 +181,69 @@ public final class Csto2 {
     }
 
     private static void discover(Map<String, String> a) throws Exception {
-        String cp = filterClasspath(req(a, "cp"));
-        Path candidates = Paths.get(req(a, "tests"));
         Path out = Paths.get(req(a, "out"));
         Path self = Paths.get(Csto2.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        List<String> cmd = new ArrayList<>();
-        cmd.add(javaBin(a));
-        cmd.addAll(jvmArgs(a));
-        cmd.add("-cp"); cmd.add(cp + File.pathSeparator + self.toAbsolutePath());
-        cmd.add("com.csto2.trace.TestDiscovery");
-        cmd.add("--discover"); cmd.add("--tests"); cmd.add(candidates.toString());
-        cmd.add("--out"); cmd.add(out.toString());
-        ProcessBuilder pb = new ProcessBuilder(cmd).inheritIO();
-        Path wd = resolveWorkDir(a, cp);
-        if (wd != null) pb.directory(wd.toFile());
-        int code = pb.start().waitFor();
-        if (code != 0) throw new IllegalStateException("discover failed with exit " + code);
+
+        Path outDir = out.getParent() != null ? out.getParent() : Paths.get(".");
+
+        System.err.println("[discover] running mvn test to discover tests natively...");
+        Path discoveryOutDir = outDir.resolve("discover");
+        Files.createDirectories(discoveryOutDir);
+        Path traceOut = discoveryOutDir.resolve("discovery.jsonl");
+        Files.deleteIfExists(traceOut);
+
+        SurefireOrchestrator runner = makeRunner(a, discoveryOutDir, self, false);
+        int exitCode = runner.runNative("discovery", traceOut);
+        if (exitCode != 0) {
+            System.err.println("[discover] warning: mvn test exited with code " + exitCode + " (some tests may have failed or fork crashed)");
+        }
+
+        // Evaluate results from the mvn test run
+        List<String> keptGreen = new ArrayList<>();
+        List<String> skippedRed = new ArrayList<>();
+
+        if (Files.exists(traceOut)) {
+            for (String line : Files.readAllLines(traceOut)) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+                String t = strField(line, "test");
+                String s = strField(line, "status");
+                long f = numField(line, "failures");
+                long tf = numField(line, "testsFound");
+                
+                if (t != null) {
+                    if ("PASS".equals(s) && f == 0 && tf > 0) {
+                        keptGreen.add(t);
+                    } else {
+                        skippedRed.add(t);
+                        String detail = tf == 0 ? "0 tests found / non-test class"
+                                : ("status=" + s + (f > 0 ? ", " + f + " failure/error(s)" : ""));
+                        System.out.println("[discover] SKIPPING RED TEST: " + t + " (" + detail + ")");
+                    }
+                }
+            }
+        } else {
+            throw new IllegalStateException("mvn test discovery pass produced no output at " + traceOut);
+        }
+
+        Files.write(out, String.join("\n", keptGreen).getBytes(StandardCharsets.UTF_8));
+        System.out.println(String.format("[discover] discovery complete: kept %d green test(s), skipped %d red test(s) -> %s",
+                keptGreen.size(), skippedRed.size(), out));
+
+        // Save skipped red tests to exclude.txt in base directory if any were found
+        if (!skippedRed.isEmpty()) {
+            Path exFile = outDir.resolve("exclude.txt");
+            Set<String> allExcluded = new LinkedHashSet<>();
+            if (Files.exists(exFile)) {
+                for (String l : Files.readAllLines(exFile)) {
+                    String s = l.trim();
+                    if (!s.isEmpty()) allExcluded.add(s);
+                }
+            }
+            allExcluded.addAll(skippedRed);
+            Files.write(exFile, String.join("\n", allExcluded).getBytes(StandardCharsets.UTF_8));
+            System.out.println("[discover] persisted " + skippedRed.size() + " skipped red test(s) to " + exFile);
+        }
     }
 
     /**
@@ -202,10 +251,10 @@ public final class Csto2 {
      * Surefire (the testorder fork) so timing + greenness match {@code mvn test}; {@code --surefire-ext}
      * (the changing-maven-extension jar) is required. Per-class alloc/jit/gc/JFR come from the
      * injected agent (csto2-agent.jar, auto-located beside csto2.jar). The old in-JVM TraceRunner
-     * backend has been retired — only its reflection-based discovery survives as {@code TestDiscovery}.
+     * backend has been completely retired.
      */
-    private static OrderRunner makeRunner(Map<String, String> a, String cp, Path outDir, Path self) throws Exception {
-        return makeRunner(a, cp, outDir, self, true);
+    private static SurefireOrchestrator makeRunner(Map<String, String> a, Path outDir, Path self) throws Exception {
+        return makeRunner(a, outDir, self, true);
     }
 
     /**
@@ -218,7 +267,7 @@ public final class Csto2 {
      * runs with {@code attachAgent=false} for clean timing — those phases only read runtime+status,
      * never agent facts.
      */
-    private static OrderRunner makeRunner(Map<String, String> a, String cp, Path outDir, Path self,
+    private static SurefireOrchestrator makeRunner(Map<String, String> a, Path outDir, Path self,
                                           boolean attachAgent) throws Exception {
         Path ext = a.containsKey("surefire-ext") && !a.get("surefire-ext").isBlank()
                 ? Paths.get(a.get("surefire-ext")) : defaultSurefireExt();
@@ -227,7 +276,7 @@ public final class Csto2 {
                     + "(`mvn install -DskipTests -Drat.skip -Denforcer.skip` in the maven-surefire fork), or pass "
                     + "--surefire-ext <surefire-changing-maven-extension jar>.");
         if (!a.containsKey("surefire-ext")) System.err.println("[csto2] surefire extension (auto): " + ext);
-        Path workDir = resolveWorkDir(a, cp);
+        Path workDir = resolveWorkDir(a);
         Path moduleDir = workDir != null ? workDir : Paths.get("").toAbsolutePath();
         SurefireOrchestrator s = new SurefireOrchestrator(moduleDir, outDir, ext, surefireMvnBin(a, moduleDir));
         Path jHome = resolveJavaHome(a);
@@ -276,7 +325,6 @@ public final class Csto2 {
     }
 
     private static void trace(Map<String, String> a) throws Exception {
-        String cp = filterClasspath(req(a, "cp"));
         Path testsFile = Paths.get(req(a, "tests"));
         int orders = Integer.parseInt(a.getOrDefault("orders", "6"));
         long seed = Long.parseLong(a.getOrDefault("seed", "1"));
@@ -285,14 +333,13 @@ public final class Csto2 {
         Path self = Paths.get(Csto2.class.getProtectionDomain().getCodeSource().getLocation().toURI());
 
         long t0 = System.nanoTime();
-        OrderRunner orch = makeRunner(a, cp, outDir, self);
+        SurefireOrchestrator orch = makeRunner(a, outDir, self);
         Path traceOut = orch.run(tests, orders, seed);
         System.err.printf("[csto2] traced %d orders in %.1fs -> %s%n", orders, (System.nanoTime() - t0) / 1e9, traceOut);
     }
 
 
     private static void select(Map<String, String> a) throws Exception {
-        String cp = filterClasspath(req(a, "cp"));
         Path testsFile = Paths.get(req(a, "tests"));
         Path tracePath = Paths.get(req(a, "trace"));
         int repeats = Integer.parseInt(a.getOrDefault("repeats", "4"));
@@ -320,7 +367,7 @@ public final class Csto2 {
 
         // Validation runner, agent OFF: the agent's recording/listener overhead would confound the very
         // wall-clock the ship gate decides on, and select reads only runtime+status (never agent facts).
-        OrderRunner validate = makeRunner(a, cp, outDir, self, false);
+        SurefireOrchestrator validate = makeRunner(a, outDir, self, false);
 
         // Drop any disabled strategy that was generated above so it is never measured (the costly part).
         for (String s : skip)
@@ -616,49 +663,29 @@ public final class Csto2 {
         return i;
     }
 
-    /**
-     * Working directory for child test JVMs. Maven Surefire runs each module's tests with the module
-     * basedir as the cwd, so tests resolving relative paths (e.g. {@code src/test/resources/...}) only
-     * pass when launched from there. Honors an explicit {@code --workdir}; otherwise infers the TEST
-     * module basedir as the parent of the {@code target/test-classes} dir (the module whose tests we
-     * run — its src/test/resources is what relative paths resolve against). Falls back to a plain
-     * {@code target/classes} module only if no test-classes entry is on the classpath. Returns null
-     * (inherit our cwd) when nothing can be inferred.
-     */
-    private static Path inferWorkDir(Map<String, String> a, String cp) {
+    private static String strField(String json, String key) {
+        String needle = "\"" + key + "\":\"";
+        int i = json.indexOf(needle);
+        if (i < 0) return null;
+        i += needle.length();
+        int j = json.indexOf('"', i);
+        return j < 0 ? null : json.substring(i, j);
+    }
+
+    private static long numField(String json, String key) {
+        String needle = "\"" + key + "\":";
+        int i = json.indexOf(needle);
+        if (i < 0) return 0;
+        i += needle.length();
+        int j = i;
+        while (j < json.length() && "+-0123456789".indexOf(json.charAt(j)) >= 0) j++;
+        try { return Long.parseLong(json.substring(i, j)); } catch (RuntimeException e) { return 0; }
+    }
+
+    private static Path resolveWorkDir(Map<String, String> a) {
         String wd = a.get("workdir");
         if (wd != null && !wd.isBlank()) return Paths.get(wd);
-        String marker = File.separator + "target" + File.separator;
-        // Prefer the test module (parent of target/test-classes); fall back to a target/classes module.
-        String fallback = null;
-        for (String e : cp.split(File.pathSeparator)) {
-            if (e.endsWith(File.separator + "target" + File.separator + "test-classes")) {
-                int i = e.lastIndexOf(marker);
-                if (i > 0) return Paths.get(e.substring(0, i));
-            } else if (fallback == null && e.endsWith(File.separator + "target" + File.separator + "classes")) {
-                fallback = e;
-            }
-        }
-        if (fallback != null) {
-            int i = fallback.lastIndexOf(marker);
-            if (i > 0) return Paths.get(fallback.substring(0, i));
-        }
         return null;
-    }
-
-    private static Path resolveWorkDir(Map<String, String> a, String cp) {
-        Path wd = inferWorkDir(a, cp);
-        if (wd != null) System.err.println("[csto2] child JVM workdir: " + wd);
-        else System.err.println("[csto2] child JVM workdir: <inherited> (pass --workdir if tests use relative paths)");
-        return wd;
-    }
-
-    /** Drop classpath entries that no longer exist (stale harness entries break child JVMs too). */
-    private static String filterClasspath(String cp) {
-        return Arrays.stream(cp.split(File.pathSeparator))
-                .map(String::trim).filter(s -> !s.isEmpty())
-                .filter(s -> Files.exists(Paths.get(s)))
-                .collect(Collectors.joining(File.pathSeparator));
     }
 
     /** Java binary for child test JVMs (e.g. point at JDK 17 for projects that don't support newer). */
@@ -727,17 +754,17 @@ public final class Csto2 {
                 "CSTO v2\n" +
                 "\n" +
                 "Stage Commands:\n" +
-                "  discover --cp <classpath> --tests <file> --out <file> [--workdir <dir>]\n" +
-                "      Filter the test list to runnable classes.\n" +
-                "  trace --cp <classpath> --tests <file> [--orders N] [--seed S] [--out <dir>]\n" +
+                "  discover --tests <file> --out <file> [--workdir <dir>]\n" +
+                "      Filter the test list to runnable classes (runs mvn test once, skipping and reporting red tests).\n" +
+                "  trace --tests <file> [--orders N] [--seed S] [--out <dir>]\n" +
                 "      Run N random test orders through Surefire to collect execution facts.\n" +
-                "  select --cp <classpath> --tests <file> --trace <file> [--repeats R] [--out <dir>]\n" +
+                "  select --tests <file> --trace <file> [--repeats R] [--out <dir>]\n" +
                 "      Measure candidate strategies and select the fastest green order.\n" +
                 "\n" +
                 "Orchestration Commands (Parity with REPL):\n" +
                 "  project [--dir <dir>] [--out <dir>]\n" +
                 "      Autodetect classpath + test list + workdir from a Maven project.\n" +
-                "  configure [--cp ...] [--tests ...] [--out ...] [--jvmargs ...] ...\n" +
+                "  configure [--tests ...] [--out ...] [--jvmargs ...] ...\n" +
                 "      Configure and persist settings in config.properties.\n" +
                 "  state [--out <dir>]\n" +
                 "      Show current config, persisted exclusions, and candidate settings.\n" +
