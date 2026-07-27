@@ -197,8 +197,7 @@ public final class SurefireOrchestrator implements OrderRunner {
 
         List<String> cmd = new ArrayList<>();
         cmd.add(mvnBin);
-        cmd.add("initialize");
-        cmd.add("surefire:test");
+        cmd.add("test");
         cmd.add("-Dmaven.build.cache.enabled=false");
         cmd.add("-Dmaven.test.failure.ignore=true");
         for (String p : extraProps) cmd.add(p);
