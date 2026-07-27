@@ -84,6 +84,12 @@ ${MVN_BIN} clean install ${PL_ARGS} -DskipTests -Dmaven.javadoc.skip=true -Dchec
 OUT_DIR="/workspace/.csto2"
 mkdir -p "${OUT_DIR}"
 
+# Replication mode: re-run the prior researcher's v0 orders instead of the csto2 pipeline.
+if [ "${2:-}" = "replicate" ]; then
+  export CONFIG_ID REPO_PATH MODULE_DIR MVN_BIN MVN_OPTS_ARGS OUT_DIR
+  exec /usr/local/bin/replicate-runner
+fi
+
 # Copy the properties to the active csto config location
 cp "${CONFIG_FILE}" "${OUT_DIR}/config.properties"
 

@@ -100,9 +100,11 @@ RUN git clone --branch modifiedRunOrder-ext https://github.com/Archonic944/maven
 COPY deps/csto2.jar /opt/csto/csto2.jar
 COPY deps/csto2-agent.jar /opt/csto/csto2-agent.jar
 COPY configs /opt/csto/configs
+COPY replication /opt/csto/replication
+COPY replicate.sh /usr/local/bin/replicate-runner
 
 # Setup entrypoint
 COPY entrypoint.sh /usr/local/bin/repo-runner
-RUN chmod +x /usr/local/bin/repo-runner
+RUN chmod +x /usr/local/bin/repo-runner /usr/local/bin/replicate-runner
 
 ENTRYPOINT ["repo-runner"]
