@@ -208,11 +208,14 @@ public final class SurefireOrchestrator implements OrderRunner {
         if (javaHome != null) pb.environment().put("JAVA_HOME", javaHome.toString());
         Path logDir = outDir.resolve("logs");
         Files.createDirectories(logDir);
+        Path logFile = logDir.resolve("native_" + orderId + ".log");
         pb.redirectErrorStream(true);
-        pb.redirectOutput(logDir.resolve("native_" + orderId + ".log").toFile());
+        pb.redirectOutput(logFile.toFile());
         int code = pb.start().waitFor();
 
-        List<Map<String, Object>> rows = parseReports(reportsDir, orderId, java.util.Collections.emptyMap());
+        List<Map<String, Object>> rows = parseNativeLog(logFile, orderId);
+        if (rows.isEmpty())
+            rows = parseReports(reportsDir, orderId, java.util.Collections.emptyMap());
 
         if (traceOut.getParent() != null) Files.createDirectories(traceOut.getParent());
         StringBuilder sb = new StringBuilder();
@@ -221,6 +224,62 @@ public final class SurefireOrchestrator implements OrderRunner {
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND);
 
         return code;
+    }
+
+    private static List<Map<String, Object>> parseNativeLog(Path logFile, String orderId)
+            throws Exception {
+        java.util.regex.Pattern running = java.util.regex.Pattern.compile(
+                "^\\[INFO\\] Running (.+)$");
+        java.util.regex.Pattern summary = java.util.regex.Pattern.compile(
+                "^\\[(?:INFO|WARNING|ERROR)\\] Tests run: (\\d+), Failures: (\\d+), "
+                        + "Errors: (\\d+), Skipped: (\\d+), Time elapsed: ([0-9.,]+) s"
+                        + "(?: <<< FAILURE!)? -- in (.+)$");
+        Map<String, Map<String, Object>> byClass = new LinkedHashMap<>();
+        String currentClass = null;
+        if (!Files.exists(logFile)) return new ArrayList<>();
+        for (String line : Files.readAllLines(logFile)) {
+            java.util.regex.Matcher rm = running.matcher(line);
+            if (rm.matches()) {
+                String name = rm.group(1).trim();
+                if (isJavaClassName(name)) currentClass = topLevelClass(name);
+                continue;
+            }
+            java.util.regex.Matcher sm = summary.matcher(line);
+            if (!sm.matches()) continue;
+            String reportedName = sm.group(6).trim();
+            String name = isJavaClassName(reportedName)
+                    ? topLevelClass(reportedName) : currentClass;
+            if (name == null) continue;
+            Map<String, Object> row = byClass.get(name);
+            if (row == null) {
+                row = new LinkedHashMap<>();
+                row.put("orderId", orderId);
+                row.put("position", byClass.size());
+                row.put("test", name);
+                row.put("runtimeMs", 0.0);
+                row.put("testsFound", 0L);
+                row.put("failures", 0L);
+                byClass.put(name, row);
+            }
+            long failures = Long.parseLong(sm.group(2)) + Long.parseLong(sm.group(3));
+            row.put("runtimeMs", (double) row.get("runtimeMs")
+                    + parseD(sm.group(5).replace(',', '.')) * 1000.0);
+            row.put("testsFound", (long) row.get("testsFound") + Long.parseLong(sm.group(1)));
+            row.put("failures", (long) row.get("failures") + failures);
+        }
+        List<Map<String, Object>> rows = new ArrayList<>(byClass.values());
+        for (Map<String, Object> row : rows)
+            row.put("status", (long) row.get("failures") == 0 ? "PASS" : "FAIL");
+        return rows;
+    }
+
+    private static boolean isJavaClassName(String name) {
+        return name.matches("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)*");
+    }
+
+    private static String topLevelClass(String name) {
+        int nested = name.indexOf('$');
+        return nested < 0 ? name : name.substring(0, nested);
     }
 
     /** class FQN -> its index in the order file (the position the class ran at). */

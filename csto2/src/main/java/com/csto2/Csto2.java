@@ -330,6 +330,8 @@ public final class Csto2 {
         long seed = Long.parseLong(a.getOrDefault("seed", "1"));
         Path outDir = Paths.get(a.getOrDefault("out", ".csto2/trace"));
         List<String> tests = readTests(testsFile);
+        if (tests.isEmpty())
+            throw new IllegalStateException("cannot trace an empty test-class list: " + testsFile);
         Path self = Paths.get(Csto2.class.getProtectionDomain().getCodeSource().getLocation().toURI());
 
         long t0 = System.nanoTime();
@@ -349,6 +351,8 @@ public final class Csto2 {
         double maxResid = Double.parseDouble(a.getOrDefault("max-resid", "300"));
         Path outDir = Paths.get(a.getOrDefault("out", ".csto2/select"));
         List<String> tests = readTests(testsFile);
+        if (tests.isEmpty())
+            throw new IllegalStateException("cannot select from an empty test-class list: " + testsFile);
         Path self = Paths.get(Csto2.class.getProtectionDomain().getCodeSource().getLocation().toURI());
         Files.createDirectories(outDir);
 

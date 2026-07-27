@@ -192,6 +192,8 @@ public final class Orchestrator {
         System.out.println("[trace-gate] " + failed.size() + " class(es) FAILED at least once during the trace "
                 + "orders -> excluded from ALL candidate orders (" + kept.size() + " classes remain):");
         for (String f : failed) System.out.println("    - " + simple(f));
+        if (kept.isEmpty())
+            throw new IllegalStateException("trace-gate excluded every test class; refusing to select empty orders");
         lastTraceExcluded = failed.size();
         return failed.size();
     }
