@@ -125,6 +125,7 @@ public final class Orchestrator {
 
 
     public void trace() throws Exception {
+        autoWire();
         requireFile("tests");
         Path outDir = baseDir().resolve("trace");
         Path traceJsonl = outDir.resolve("trace.jsonl");
@@ -199,6 +200,7 @@ public final class Orchestrator {
     }
 
     public void select() throws Exception {
+        autoWire();
         requireFile("tests"); requireFile("trace");
         Map<String, String> a = args("trace", "jvmargs", "java", "workdir", "repeats", "surefire-ext", "mvn", "kp-argline", "mvnopts", "skip-candidates", "heavy-k", "heavy-cap");
         a.put("tests", cfg.get("tests"));
@@ -241,6 +243,7 @@ public final class Orchestrator {
     // ---- exclude -------------------------------------------------------------------------------
 
     public void exclude(List<String> tokens) throws Exception {
+        autoWire();
         requireFile("tests");
         Path testsFile = Paths.get(cfg.get("tests"));
         List<String> current = new ArrayList<>();
@@ -482,6 +485,18 @@ public final class Orchestrator {
             if (v != null && !v.isBlank()) a.put(k, v);
         }
         return a;
+    }
+
+    /** Wire unset tests/trace from this workspace's on-disk artifacts so phases resume without manual flags. */
+    private void autoWire() throws IOException {
+        if (cfg.get("tests") == null || !Files.exists(Paths.get(cfg.get("tests")))) {
+            Path t = baseDir().resolve("tests.runnable");
+            if (Files.exists(t)) { cfg.put("tests", t.toAbsolutePath().toString()); System.out.println("[resume] tests -> " + t); }
+        }
+        if (cfg.get("trace") == null || !Files.exists(Paths.get(cfg.get("trace")))) {
+            Path t = baseDir().resolve("trace").resolve("trace.jsonl");
+            if (Files.exists(t)) { cfg.put("trace", t.toAbsolutePath().toString()); System.out.println("[resume] trace -> " + t); }
+        }
     }
 
     private void require(String key) throws IOException {
