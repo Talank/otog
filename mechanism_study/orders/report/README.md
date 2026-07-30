@@ -1,12 +1,10 @@
 # Order pairs used in the reported measurements
 
-Each row names the two order files used for a baseline comparison in
-`csto2/findings/mechanisms.md`. The two files contain the same tests. The
-faster order repeatedly has a lower complete-suite run time than the slower
-order in the documented experiment. The report gives the mechanism that makes
-the direction stable. The project revision and JVM are part of the experiment
-definition. Some files were copied from ignored run output or an external
-project checkout so that a fresh clone keeps the measured inputs.
+Each row lists two order files compared in `csto2/findings/mechanisms.md`.
+Both files contain the same tests. In repeated runs, the faster order has a
+lower total test-suite time than the slower order. The report explains why.
+Use the project revision and JVM named in the report when you repeat the
+comparison.
 
 | Report section | Faster order | Slower order |
 |---|---|---|
