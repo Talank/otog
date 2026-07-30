@@ -153,7 +153,6 @@ Five interleaved runs were green.
 
 The polluted median is 3.56 times the clean median.
 The median penalty is 10.36 seconds.
-The raw results are in `mechanism_study/artifacts/javaparser/lpp-state-pair/`.
 
 ### 4.2 Producer
 
@@ -227,10 +226,6 @@ Thus, the extra tree work has no value for this test.
 
 ### 4.4 Profile evidence
 
-The detailed Java Flight Recorder (JFR) files are in:
-
-`mechanism_study/artifacts/javaparser/lpp-state-jfr/`.
-
 | Javadoc test state | Run time | Allocated memory | Garbage collection |
 |---|---:|---:|---:|
 | Clean | 8.438 s | 3.62 GiB | 13 events and 188 ms |
@@ -286,12 +281,6 @@ Across 20 paired runs:
 - The two-sided sign-test value is approximately 0.0004.
 
 The raw measurements are in:
-
-```text
-snakeyaml/.csto2/select_final/cp-probe.jsonl
-snakeyaml/.csto2/select_final2/cp-probe.jsonl
-snakeyaml/.csto2/select_final3/cp-probe.jsonl
-```
 
 The largest repeatable class effects are:
 
@@ -375,10 +364,6 @@ This test uses the same representer, serializer, emitter, reader, scanner, parse
 
 ### 5.4 Profile evidence
 
-The JFR files are in:
-
-`mechanism_study/artifacts/snakeyaml/warm-cold-flow-jfr/`.
-
 The profiles are for cause attribution.
 The unprofiled paired runs give the effect size.
 
@@ -398,10 +383,6 @@ The warm test loads only two application classes in the measured interval.
 Earlier small tests loaded the other classes.
 
 A separate check disables the just-in-time (JIT) compiler with `-Xint`.
-The partial results are in:
-
-`mechanism_study/artifacts/snakeyaml/warm-cold-xint/`.
-
 The results are:
 
 - `PyEmitterTest` takes 2,653 ms when cold and 2,586 ms when warm.
@@ -458,10 +439,6 @@ The warm order is 4.73% faster.
 The median for `JavaParserTypeSolverTest` is 2,098 ms in the cold order.
 It is 1,624 ms in the warm order.
 The class is 22.6% faster in the warm order.
-
-The raw measurements are in:
-
-`mechanism_study/artifacts/javaparser-symbol-solver/type-solver-front-back-r1/`.
 
 This local result supports an earlier remote result.
 The remote optimized order is 16.8% faster than its initial order across ten pairs.
@@ -525,10 +502,6 @@ They are not the cross-class mechanism.
 ### 6.3 Profile evidence
 
 The JFR experiment moves only the consumer.
-The files are in:
-
-`mechanism_study/artifacts/javaparser-symbol-solver/type-solver-front-back-jfr/`.
-
 | Consumer state | Run time | Class loads | Compiler time | Monitor wait | Garbage collection |
 |---|---:|---:|---:|---:|---:|
 | Cold | 2.065 s | 1,358 events and 74.2 ms | 2,865 events and 6,340.9 ms | 619.4 ms | 38.8 ms |
@@ -580,10 +553,6 @@ Two interleaved pairs give these suite medians:
 
 The warm-minus-cold effect is -0.04%.
 The normal 4.73% suite effect is absent.
-The raw results are in:
-
-`mechanism_study/artifacts/javaparser-symbol-solver/type-solver-front-back-c1/`.
-
 `JavaParserTypeSolverTest` still saves 196 ms at the end with C1.
 First-use class loading and basic compilation can explain this smaller part.
 The complete suite does not save time because other classes offset this part.
@@ -642,16 +611,8 @@ The consumer median is 3334.5 ms in the slow order.
 The consumer median is 1630.5 ms in the fast order.
 Thus, prior mock instrumentation makes the consumer 2.04 times slower.
 
-The raw results are in:
-
-`mechanism_study/artifacts/commons-text/append-insert-reader-pair-r10/`.
-
 A larger prefix experiment confirms that this class explains most of a complete-order effect.
 The complete prefix suite is 18.06% faster when the reader moves from position 26 to position 1.
-The complete results are in:
-
-`mechanism_study/artifacts/commons-text/reader-prefix-position-fixed/`.
-
 ### 7.2 Producer
 
 `TextStringBuilderAppendInsertTest` creates Mockito spies of `TextStringBuilder`.
@@ -681,10 +642,6 @@ TextStringBuilderAppendInsertTest.testAppendln_CharArray
   -> Instrumentation.retransformClasses(TextStringBuilder)
   -> add a mock-dispatch check to TextStringBuilder methods
 ```
-
-The bytecode dump is in:
-
-`mechanism_study/artifacts/commons-text/byte-buddy-dump/classes/`.
 
 The original `TextStringBuilder.size()` method has this effective code:
 
@@ -758,10 +715,6 @@ The changed execution path performs the mock dispatch checks many times.
 
 ### 7.4 Profile evidence
 
-The JFR files are in:
-
-`mechanism_study/artifacts/commons-text/append-insert-reader-jfr/`.
-
 | Consumer state | Run time | Allocated bytes | Compiler time | Garbage collection |
 |---|---:|---:|---:|---:|
 | Instrumented | 3.269 s | 9963.6 MiB | 2019.6 ms | 41.5 ms |
@@ -806,10 +759,6 @@ The order difference is 0.70%.
 Thus, the 45.92% penalty is absent.
 With this change, the consumer median is 1462.5 ms when it runs second.
 It is 1504 ms when it runs first.
-
-The raw results are in:
-
-`mechanism_study/artifacts/commons-text/append-insert-reader-subclass-r10/`.
 
 This check changes the mock implementation and keeps the test behavior.
 It shows that inline bytecode transformation causes the slowdown.
@@ -882,10 +831,6 @@ It is 1165 ms in the slow order.
 The median for `NettyConnectionResetByPeerTest` changes from 559.5 ms to
 614.5 ms.
 Thus, the additional multipart work is not a transfer of the reset-test cost.
-The raw results are in:
-
-`mechanism_study/artifacts/async-http-client/leak-level-body-reset-baseline-r10/`.
-
 All ten fast-order logs show this value:
 
 ```text
@@ -993,10 +938,6 @@ Thus, it amplifies the cost of the selected policy.
 
 ### 8.5 Profile and operating-system evidence
 
-The detailed JFR pair is in:
-
-`mechanism_study/artifacts/async-http-client/leak-level-jfr-pair/`.
-
 | `MultipartBodyTest` policy | Run time | Attributed allocation |
 |---|---:|---:|
 | `SIMPLE` | 0.426 s | 41.8 MiB |
@@ -1048,10 +989,6 @@ The original slow direction is absent.
 It reverses in all ten pairs.
 After this change, ordinary Netty initialization by the first class can
 help the second class.
-The raw results are in:
-
-`mechanism_study/artifacts/async-http-client/leak-level-forced-simple-r10/`.
-
 This check changes the selected Netty leak-detection policy.
 It does not change the multipart input or the assertions.
 It confirms that policy selection causes the original order difference.
@@ -1122,10 +1059,6 @@ The consumer medians also have the same direction:
 | `FilterTest` | 862.0 ms | 731.0 ms |
 | `ConnectionPoolTest` | 200.0 ms | 180.5 ms |
 | `MultipartBasicAuthTest` | 1047.0 ms | 884.0 ms |
-
-The raw results are in:
-
-`mechanism_study/artifacts/async-http-client/defaults-keepalive-heavy-java11-r10/`.
 
 ### 9.2 Producer and cache
 
@@ -1272,10 +1205,6 @@ The reverse arm has a median of 126.
 The first arm has more voluntary context switches in all 10 paired runs.
 The paired median difference is 174.
 
-The JFR pair is in:
-
-`mechanism_study/artifacts/async-http-client/defaults-keepalive-heavy-java11-jfr-pair/`.
-
 JFR shows this new-channel allocation path:
 
 ```text
@@ -1311,10 +1240,6 @@ The original run-time direction does not stay.
 The `maxRedirects -> allowPooling` order has a median of 1688.5 ms.
 The reverse order has a median of 1781.0 ms.
 Thus, the first order becomes 5.2% faster.
-
-The check results are in:
-
-`mechanism_study/artifacts/async-http-client/defaults-keepalive-heavy-reload-fix-java11-r10/`.
 
 This check confirms this causal chain:
 
@@ -1413,10 +1338,6 @@ This result is not a fixed first-position cost.
 The large suite costs 222.5 ms more when it runs first.
 It then saves 242.0 ms in the second suite.
 The total is 19.5 ms lower.
-
-The raw baseline is in:
-
-`mechanism_study/artifacts/gson/linked-object-corretto8-baseline-20pairs`.
 
 ### 10.2 Generated suite flow
 
@@ -1545,10 +1466,6 @@ This event was 147.065 ms after the second suite started.
 Thus, the order changes how long the second suite runs before the shared iterator engine reaches level 4.
 The recording also shows level-3 and level-4 changes in `LinkedTreeMap.find`, `put`, `nextNode`, and `entrySet`.
 
-The recordings are in:
-
-`mechanism_study/artifacts/gson/linked-object-corretto8-jfr-all-compilation`.
-
 ### 10.5 Check
 
 This check disabled compilation only for the shared Guava iterator engine:
@@ -1585,11 +1502,6 @@ The evidence does not show a stable reverse direction.
 This change affects only compilation of the JFR-identified shared class.
 It does not change the Gson map configuration or the test set.
 This result confirms that the shared iterator optimization is a material cause of the baseline order effect.
-
-The raw check data is in:
-
-- `mechanism_study/artifacts/gson/linked-object-corretto8-no-iterator-jit-20pairs`
-- `mechanism_study/artifacts/gson/linked-object-corretto8-no-iterator-jit-repeat-20pairs`
 
 ### 10.6 Abstraction
 
@@ -1648,10 +1560,6 @@ This is not a fixed cost that moves from one class to the other.
 `StressEmitterTest` is also slower when it runs first.
 
 The baseline data is in:
-
-```text
-mechanism_study/artifacts/snakeyaml/references-stress-corretto8-baseline-12pairs
-```
 
 ### 11.2 Producer
 
@@ -1731,10 +1639,6 @@ Stress -> References: 1,517 ms
 
 The JFR data is in:
 
-```text
-mechanism_study/artifacts/snakeyaml/references-stress-corretto8-jfr
-```
-
 The HotSpot compilation logs give the exact tier changes.
 When `ReferencesTest` ran first:
 
@@ -1758,10 +1662,6 @@ A separate logged pair reproduced this timing shape.
 `ReferencesTest` took 1,062 ms when it ran first.
 It took 2,849 ms after `StressEmitterTest`.
 The HotSpot logs are in:
-
-```text
-mechanism_study/artifacts/snakeyaml/references-stress-hotspot-log
-```
 
 ### 11.5 Checks and limits
 
@@ -1801,13 +1701,6 @@ The paired mean changed from +505.5 ms to -132.8 ms.
 Three large reverse pairs on a busy host caused the negative mean.
 The check reduced the median gap.
 It is not a clean removal.
-
-The check data is in:
-
-- `mechanism_study/artifacts/snakeyaml/references-stress-corretto8-exclude-hash-6pairs`;
-- `mechanism_study/artifacts/snakeyaml/references-stress-corretto8-exclude-emitter-serializer-4pairs`;
-- `mechanism_study/artifacts/snakeyaml/references-stress-corretto8-ci8-6pairs`;
-- `mechanism_study/artifacts/snakeyaml/references-stress-corretto8-ci8-repeat-4pairs`.
 
 The baseline, JFR, compilation log, and checks support this cause:
 
@@ -1889,12 +1782,7 @@ The paired mean was 531.8 ms.
 The front median was 9.68% lower than the back median.
 The two-sided sign-test probability for 10 wins in 10 pairs was 0.001953.
 
-The baseline data used for this result is in:
-
-- `mechanism_study/artifacts/snakeyaml/compact-regex-front-back`;
-- `mechanism_study/artifacts/snakeyaml/compact-regex-corretto8-baseline-add3`.
-
-The study excluded `compact-regex-corretto8-baseline-r10`.
+The study excluded the baseline r10 run.
 That run overlapped a separate high-load experiment.
 
 ### 12.2 Test flow
@@ -1962,21 +1850,11 @@ Three repeated Java 8 thread snapshots show `test4` in the recursive
 `Pattern$Curly` and `Pattern$Loop` calls.
 The snapshots are in:
 
-```text
-mechanism_study/artifacts/snakeyaml/warm-cold-xint/compact-thread-1.txt
-mechanism_study/artifacts/snakeyaml/warm-cold-xint/compact-thread-2.txt
-mechanism_study/artifacts/snakeyaml/warm-cold-xint/compact-thread-3.txt
-```
-
 The boundary counters also show different JVM state at the two positions.
 The front interval loaded 371 classes.
 It had 336 to 1,028 ms of compiler work.
 The back interval loaded one class.
 It had 286 to 478 ms of compiler work.
-See:
-
-`mechanism_study/artifacts/snakeyaml/compact-regex-jdk8-instrumented`.
-
 These counters do not identify one compilation tier or one prior test as the
 cause.
 The confirmed claim is narrower.
@@ -2032,10 +1910,6 @@ The absolute paired median decreased by 96.4%, from 567.5 to 20.5 ms.
 The stable baseline direction was absent.
 
 The check data is in:
-
-```text
-mechanism_study/artifacts/snakeyaml/compact-regex-linear-gate-corretto8-r10-clean
-```
 
 ### 12.5 Java-version limit
 
