@@ -15,11 +15,12 @@ to the project under test.
 
 Keep generated recordings and run output under `mechanism_study/artifacts/`.
 Git ignores that directory because the data is large and often specific to one
-host. Commit the final report, the exact accepted order files, the scripts and
-settings needed to repeat the work, and a small evidence summary with the
-accepted measurements and excluded runs. Before a run, install the patched
+host. Commit the final report, the exact order pairs used in the reported
+measurements, the scripts and settings needed to repeat the work, and a small
+evidence summary with the measurements used in the report and the runs omitted
+from it. Before a run, install the patched
 Surefire extension as version `1.0-SNAPSHOT`; build the `csto2` agent when the
 run needs boundary data or JFR test intervals. Run each script with `--help`
 for its command-line options. The consolidated results are in
-`../csto2/findings/mechanisms.md`, and the accepted inputs are listed in
-`orders/ACCEPTED.md`.
+`../csto2/findings/mechanisms.md`, and the order pairs used for the reported
+measurements are listed in `orders/report/README.md`.

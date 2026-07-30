@@ -1892,7 +1892,7 @@ The paired mean was 531.8 ms.
 The front median was 9.68% lower than the back median.
 The two-sided sign-test probability for 10 wins in 10 pairs was 0.001953.
 
-The accepted baseline data is in:
+The baseline data used for this result is in:
 
 - `mechanism_study/artifacts/snakeyaml/compact-regex-front-back`;
 - `mechanism_study/artifacts/snakeyaml/compact-regex-corretto8-baseline-add3`.

@@ -13,7 +13,7 @@ Date: 2026-07-30
 - The only order change moves
   `org.yaml.snakeyaml.extensions.compactnotation.CompactConstructorErrorsTest`
   from position 348 to position 0.
-- Every accepted arm ran 349 classes with zero failures.
+- Every arm used in the result ran 349 classes with zero failures.
 
 This result is limited to Corretto 8. In the Java 11 front/back JFR run, the
 same class took 45 ms at position 0 and 7 ms at position 348. Java 17 runs
@@ -132,7 +132,7 @@ CompactConstructorErrorsTest.test4
 
 These snapshots establish that the expensive Java 8 work is occurring inside
 the `GUESS_COMPACT` matcher reached by the moved test. They are path evidence,
-not timing samples from the accepted ten-pair baseline.
+not timing samples from the ten-pair baseline result.
 
 For JVM-version scope, `compact-regex-flow-jfr/00-00-front.jfr` records
 OpenJDK 11.0.31 explicitly in its `jdk.JVMInformation` event. Its derived
@@ -234,12 +234,12 @@ The ten check pairs used the same command with:
 
 ## Raw evidence and exclusions
 
-Accepted baseline:
+Baseline data used in the report:
 
 - `mechanism_study/artifacts/snakeyaml/compact-regex-front-back`
 - `mechanism_study/artifacts/snakeyaml/compact-regex-corretto8-baseline-add3`
 
-Accepted check:
+Check data used in the report:
 
 - `mechanism_study/artifacts/snakeyaml/compact-regex-linear-gate-corretto8-r10-clean`
 
