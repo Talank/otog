@@ -2,12 +2,13 @@
 
 Each row names the two order files used for a baseline comparison in
 `csto2/findings/mechanisms.md`. The two files contain the same tests. The
-faster and slower labels describe the measured baseline result on the JVM
-specified in the report. They are not claims about other JVMs or hosts. Some
-files were copied from ignored run output or an external project checkout so
-that a fresh clone keeps the measured inputs.
+faster order repeatedly has a lower complete-suite run time than the slower
+order in the documented experiment. The report gives the mechanism that makes
+the direction stable. The project revision and JVM are part of the experiment
+definition. Some files were copied from ignored run output or an external
+project checkout so that a fresh clone keeps the measured inputs.
 
-| Report section | Faster baseline order | Slower baseline order |
+| Report section | Faster order | Slower order |
 |---|---|---|
 | 3. OpenPojo cache | `openpojo-structural-then-identity.order` | `openpojo-identity-then-structural.order` |
 | 4. JavaParser lexical preservation | `javaparser-javadoc-then-lpp.order` | `javaparser-lpp-then-javadoc.order` |
