@@ -57,9 +57,6 @@ Many small tests can make a later consumer warm.
 | Compiler-queue delay plus recursive-map uncommon trap | SnakeYAML | `References -> Stress` has a 518.5 ms lower paired median across 12 Java 8 pairs | Run the recursive-map test before the compiler-heavy emitter test |
 | Java 8 compact-notation regular expression | SnakeYAML | Moving one class to the front has a 567.5 ms lower paired median across 10 Java 8 pairs | Run the compact-notation error test before the other 348 classes |
 
-These mechanisms need different order rules.
-A single cost value for each test cannot represent all ten mechanisms.
-
 ## 3. OpenPojo: retained shared cache
 
 ### 3.1 Result
