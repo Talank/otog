@@ -13,18 +13,18 @@ Initial is the `mvn test` order. Naïve-5 is the best of 5 shuffled orders.
 
 ## Paper eval dataset (including A/B experiment testing)
 
-| ID | Project | Module | Strategy | Initial Raw Time | Naïve-5 Raw Time | Naïve-100 Raw Time | Optimal Raw Time | % speedup v naive-5 | % speedup v naive-100 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1683 | javaparser/javaparser | symbol-solver-testing | alloc-front+warm-tail | 31,501ms | 28,496ms | 30,092ms | 26,326ms | 7.6% (p=0.0039) | 9.5% |
-| 1685 | javaparser/javaparser | core-testing | pkg-alloc-front | 26,536ms | 25,617ms | 24,852ms | 20,146ms | 21.4% (p=0.0020) | 18.1% |
-| 20 | netty/netty | transport-native-epoll | rt-heavy-tail | 631,594ms | 632,314ms | — | 630,518ms | 0.3% (p=0.0645) | — |
-| 29 | netty/netty | transport | pkg-rt-front | 56,215ms | 56,034ms | — | 55,592ms | 0.8% (p=0.3750) | — |
-| 33 | netty/netty | handler | rt-heavy-tail | 292,800ms | 289,802ms | — | 289,802ms | -0.6% (p=0.1602) | — |
-| 1305 | AsyncHttpClient/async-http-client | client | rt-heavy-tail | 202,590ms | 201,482ms | — | 201,362ms | 0.1% (p=0.1602) | — |
-| 3320 | apache/curator | curator-recipes | rt-heavy-tail | 1,799,613ms | 1,778,795ms | — | 1,785,998ms | -0.8% (p=1.0000) | — |
-| 3323 | apache/curator | curator-framework | pkg-alloc-front | 480,137ms | 481,944ms | — | 478,788ms | 0.7% (p=0.3750) | — |
-| 3613 | apache/paimon | paimon-core | alloc-sort | 925,663ms | 779,205ms | 694,421ms | 704,240ms | 9.6% (p=0.0020) | -4.3% |
-| 1778 | spring-projects/spring-ai | spring-ai-openai | pkg-rt-front | 5,918ms | 5,804ms | 5,943ms | 5,572ms | 4.0% (p=0.0840) | -10.1% |
+| ID | Project | Module | Strategy | Initial Raw Time | Naïve-5 Raw Time | Naïve-100 Raw Time | Optimal Raw Time | % speedup v initial | % speedup v naive-5 | % speedup v naive-100 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1683 | javaparser/javaparser | symbol-solver-testing | alloc-front+warm-tail | 31,501ms | 28,496ms | 30,092ms | 26,326ms | 16.4% | 7.6% (p=0.0039) | 9.5% |
+| 1685 | javaparser/javaparser | core-testing | pkg-alloc-front | 26,536ms | 25,617ms | 24,852ms | 20,146ms | 24.1% | 21.4% (p=0.0020) | 18.1% |
+| 20 | netty/netty | transport-native-epoll | rt-heavy-tail | 631,594ms | 632,314ms | — | 630,518ms | 0.2% | 0.3% (p=0.0645) | — |
+| 29 | netty/netty | transport | pkg-rt-front | 56,215ms | 56,034ms | — | 55,592ms | 1.1% | 0.8% (p=0.3750) | — |
+| 33 | netty/netty | handler | rt-heavy-tail | 292,800ms | 289,802ms | — | 289,802ms | 1.0% | -0.6% (p=0.1602) | — |
+| 1305 | AsyncHttpClient/async-http-client | client | rt-heavy-tail | 202,590ms | 201,482ms | — | 201,362ms | 0.6% | 0.1% (p=0.1602) | — |
+| 3320 | apache/curator | curator-recipes | rt-heavy-tail | 1,799,613ms | 1,778,795ms | — | 1,785,998ms | 0.8% | -0.8% (p=1.0000) | — |
+| 3323 | apache/curator | curator-framework | pkg-alloc-front | 480,137ms | 481,944ms | — | 478,788ms | 0.3% | 0.7% (p=0.3750) | — |
+| 3613 | apache/paimon | paimon-core | alloc-sort | 925,663ms | 779,205ms | 694,421ms | 704,240ms | 23.9% | 9.6% (p=0.0020) | -4.3% |
+| 1778 | spring-projects/spring-ai | spring-ai-openai | pkg-rt-front | 5,918ms | 5,804ms | 5,943ms | 5,572ms | 5.9% | 4.0% (p=0.0840) | -10.1% |
 
 *(Note: p-values for naïve-100 are omitted because the A/B testing was capped at 5 runs, making it theoretically impossible to reach statistical significance).*
 
