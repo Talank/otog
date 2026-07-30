@@ -1,0 +1,2 @@
+org.asynchttpclient.request.body.multipart.MultipartBodyTest
+org.asynchttpclient.netty.NettyConnectionResetByPeerTest

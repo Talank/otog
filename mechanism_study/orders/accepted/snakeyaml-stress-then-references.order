@@ -1,0 +1,2 @@
+org.yaml.snakeyaml.stress.StressEmitterTest
+org.yaml.snakeyaml.issues.issue377.ReferencesTest

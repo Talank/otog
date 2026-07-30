@@ -1,0 +1,2 @@
+com.openpojo.StructuralTest
+com.openpojo.business.identity.impl.IdentityFactoryRaceConditionTest
