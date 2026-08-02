@@ -1,0 +1,76 @@
+# Goal: confirm a speedup of 10% or more on 5 projects, found automatically
+
+The two goals before this one are complete. Goal 1: detect 10 documented mechanisms from one
+profiled run (see findings/auto-detection.md). Goal 2: filter detected mechanisms to proven
+speedups (see findings/speedup-filtering.md). This goal: the automatic pipeline must find a
+full-suite speedup of 10% or more on 5 different projects, against each project's natural
+test order.
+
+## Definition of "natural order" (all conditions apply)
+
+- The baseline order is the real order in which `mvn test` runs the test classes on this
+  machine. Capture this order from a real run. Do not use an alphabetical list. Do not use a
+  constructed slow order.
+- The pipeline runs the same way on every project: one profiled run of the natural order, then
+  candidate moves, then the applied order, then measurement. Use one global configuration.
+  Do not tune for one project. Do not use test names in detection logic (rule C3).
+- A claim of 10% or more for one project needs all of these: the applied order against the
+  natural order, the full suite, 10 or more interleaved pairs (chunked runs can be merged),
+  no test failures in any run of either order, a paired median saving of 10% or more of the
+  natural-order median, and 9 or more wins out of 10 pairs (two-sided sign test p <= 0.05).
+- The 5 projects must be different repositories. Two modules of one repository count as one
+  project.
+
+## Discovery budget (added 2026-08-01; first set to 2x, then changed to 5x)
+
+The tool can spend at most 5 times the natural suite's test-execution time to find the order
+it emits, for each project. The rules for this budget:
+
+- Not counted: the first uninstrumented run that captures the test list and order, and the
+  final 10-pair measurement. The final measurement grades the tool's output. It is not part
+  of the search.
+- Counted: each run that the tool starts after the capture. This includes the profiled run
+  (about 1x) and all confirmation runs. Count test-execution time, not Maven start-up time.
+- Unlimited screening runs for each candidate are not permitted. They cost 6 or more suite
+  runs for each candidate. The remaining budget (about 4x) pays for small targeted runs. One
+  example: run a suspected polluter class and its victim class as a two-class suite, in both
+  orders, and compare the victim's time.
+- Small isolated runs give valid evidence only for leftover-state mechanisms (static data,
+  system properties, thread-local values). Compiler-timing effects do not appear correctly in
+  small fresh-JVM runs. Documented tests show that the direction can invert. Compiler-timing
+  moves must stand on profile evidence alone.
+- Each claimed win must include a record of the discovery spend. The record must list each
+  tool-started run and its cost. The total must be 5x or less.
+
+## Standing rules
+
+- Old csto2 raw timings can point to possible headroom. Old csto2 explanations stay
+  retracted. The documented mechanisms in mechanisms.md stay valid.
+- The counted detection, ranking, and filter logic must be 750 non-blank lines or fewer.
+  Harness and measurement scripts are not counted. Delete and rewrite code freely.
+- Do not start a task that runs for more than about 5 minutes. Run long measurements as
+  chunked tasks.
+- The 10-row scorecard from goal 1 must pass 10 of 10 with the final code. The candidate-count
+  caps (rule C2) must hold on every measured project.
+- A suite must have no test failures in its natural order before measurement. If a test class
+  cannot pass for environment reasons, remove it from both orders and write a note.
+
+## Hard criteria
+
+- **G1.** 5 projects. Each has a fresh measurement on current code: 10 or more pairs, no test
+  failures, a paired median saving of 10% or more, and 9 or more wins out of 10.
+- **G2.** Zero configuration for single projects. No test names in logic (verify with grep).
+  One global threshold set for all 5 projects.
+- **G3.** The 10-row scorecard passes 10 of 10 on the final code. Counted lines are 750 or
+  fewer. Show both with fresh output.
+- **G4.** findings/natural-10pct.md contains, for each project: the capture method, the
+  detector output, the applied order, the full measurement tables, and the dominant mechanism
+  with evidence. It also contains honest notes for each project that was tried and stopped.
+
+## The goal is not complete if
+
+- Any of the 5 wins was measured against an order that is not the captured natural order.
+- Any win's measurement is older than the last detector or rule change. A rule change
+  requires a new measurement, unless the emitted order is identical byte for byte.
+- A win rests on a run with test failures, a partial chunk, or fewer than 10 merged pairs.
+- The scorecard or the line count was last verified before the final code state.
