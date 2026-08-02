@@ -218,7 +218,8 @@ def main() -> None:
             env = os.environ.copy()
             if args.java_home:
                 env["JAVA_HOME"] = str(args.java_home.resolve())
-            fork_args = args.jvm_args
+            # headless: the fork must never register as a macOS GUI app and steal window focus
+            fork_args = f"-Djava.awt.headless=true -Dapple.awt.UIElement=true {args.jvm_args or ''}".strip()
             if args.profile_jfr or args.instrument:
                 if not args.agent.is_file():
                     raise SystemExit(f"CSTO2 profiling agent not found: {args.agent}")
