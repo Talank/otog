@@ -22,10 +22,10 @@ This report uses these terms:
 All confirmed examples use one reused test fork.
 The mechanisms do not cross a new JVM process.
 
-For some checks, this study changes one item that may cause the difference.
+For some checks, this study changes one item in the code that may cause the difference.
 For example, a check can clear one cache or stop compilation of one class.
 The changed run is not part of the baseline result.
-If the original time gap becomes much smaller, the result supports the
+Instead, if the original time gap becomes much smaller, the result supports the
 proposed cause.
 
 The general model is:
