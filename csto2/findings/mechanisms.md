@@ -22,16 +22,11 @@ This report uses these terms:
 All confirmed examples use one reused test fork.
 The mechanisms do not cross a new JVM process.
 
-An A/B timing difference shows an association between order and run time.
-It does not identify the cause by itself.
 For some checks, this study changes one item that may cause the difference.
 For example, a check can clear one cache or stop compilation of one class.
-The report states the exact change before it gives the result.
 The changed run is not part of the baseline result.
-The check repeats the same green tests in the same two orders.
 If the original time gap becomes much smaller, the result supports the
 proposed cause.
-The check must keep the test inputs and assertions unchanged.
 
 The general model is:
 
