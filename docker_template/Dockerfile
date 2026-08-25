@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     procps \
+    python3 \
     net-tools \
     iputils-ping \
     make \
@@ -102,9 +103,11 @@ COPY deps/csto2-agent.jar /opt/csto/csto2-agent.jar
 COPY configs /opt/csto/configs
 COPY replication /opt/csto/replication
 COPY replicate.sh /usr/local/bin/replicate-runner
+COPY mechanisms /opt/csto/mechanisms
+COPY mechanisms.sh /usr/local/bin/mechanisms-runner
 
 # Setup entrypoint
 COPY entrypoint.sh /usr/local/bin/repo-runner
-RUN chmod +x /usr/local/bin/repo-runner /usr/local/bin/replicate-runner
+RUN chmod +x /usr/local/bin/repo-runner /usr/local/bin/replicate-runner /usr/local/bin/mechanisms-runner
 
 ENTRYPOINT ["repo-runner"]

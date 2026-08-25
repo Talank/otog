@@ -90,6 +90,13 @@ if [ "${2:-}" = "replicate" ]; then
   exec /usr/local/bin/replicate-runner
 fi
 
+# Mechanism mode: pairwise + whole-suite A/B for the config's confirmed mechanism
+# (findings/mechanisms.md), 10 interleaved rounds each + Wilcoxon signed-rank report.
+if [ "${2:-}" = "mechanisms" ]; then
+  export CONFIG_ID REPO_PATH MODULE_DIR MVN_BIN MVN_OPTS_ARGS OUT_DIR
+  exec /usr/local/bin/mechanisms-runner
+fi
+
 # Copy the properties to the active csto config location
 cp "${CONFIG_FILE}" "${OUT_DIR}/config.properties"
 
