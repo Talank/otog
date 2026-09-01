@@ -54,6 +54,10 @@ Many small tests can make a later consumer warm.
 
 ## 3. OpenPojo: retained shared cache
 
+One test fills a shared cache with thousands of entries, and a
+later test that scans the whole package must work through that retained cache,
+so the scan is faster when it runs before the cache is filled.
+
 ### 3.1 Result
 
 The paper compares these two orders:
@@ -129,6 +133,10 @@ The paper provides this example.
 The current study did not repeat its experiment.
 
 ## 4. JavaParser: leaked lexical-preservation configuration
+
+One test switches the shared parser into an expensive mode and
+never switches it back, so every later test that parses pays for extra work it
+does not use.
 
 ### 4.1 Result
 
@@ -258,6 +266,11 @@ The best fix is to restore the old configuration.
 If a source fix is not possible, CSTO2 must put this producer after its consumers.
 
 ## 5. SnakeYAML: shared first-use initialization
+
+The first test to use a library path pays its one-time
+class-loading and setup cost; when many small tests run first, they pay those
+costs in small pieces, and the big tests that repeat the same operations
+thousands of times run cheaper.
 
 ### 5.1 Result
 
@@ -411,6 +424,10 @@ A costly predecessor with low path overlap is not useful.
 This mechanism does not support a rule that puts all costly tests first.
 
 ## 6. JavaParser symbol solver: shared optimized code
+
+Earlier tests make the JVM compile the parser into fast machine
+code, so a test that parses heavily is much faster at the end of the suite than
+at the start, where it must run the parser in slow, not-yet-compiled form.
 
 ### 6.1 Result
 
@@ -584,6 +601,11 @@ It must confirm the proposed edge with a paired order experiment.
 
 ## 7. Commons Text: persistent inline-mock instrumentation
 
+The test for `TextStringBuilder` rewrites `TextStringBuilder`'s
+own code in the running JVM to support mocking and leaves it rewritten, so a
+later test that calls `TextStringBuilder` millions of times runs about twice as
+slow.
+
 ### 7.1 Result
 
 The experiment uses these two classes:
@@ -710,14 +732,11 @@ The changed execution path performs the mock dispatch checks many times.
 
 ### 7.4 Profile evidence
 
-| Consumer state | Run time | Allocated bytes | Compiler time | Garbage collection |
-|---|---:|---:|---:|---:|
-| Instrumented | 3.269 s | 9963.6 MiB | 2019.6 ms | 41.5 ms |
-| Not instrumented | 1.682 s | 9964.1 MiB | 970.8 ms | 31.0 ms |
-
-The allocation totals differ by less than 1 MiB.
-The garbage-collection difference is only 10.5 ms.
-Neither value explains the 1.587-second run-time difference.
+The instrumented consumer interval runs 3.269 seconds.
+The same interval without instrumentation runs 1.682 seconds.
+Allocation and garbage collection are almost identical in both orders.
+Thus, the work volume is the same and neither explains the difference.
+Compiler time doubles in the instrumented interval, from 970.8 to 2,019.6 ms.
 
 The slow interval compiles `MockMethodDispatcher.get`.
 It also compiles the changed `TextStringBuilder` methods.
@@ -783,6 +802,11 @@ It can put the mock producer after large consumers of that type.
 It can also test a subclass mock maker when the project permits that change.
 
 ## 8. AsyncHttpClient: cached Netty leak-detection policy
+
+Whichever test touches Netty first decides, for the rest of the
+run, whether Netty tracks every buffer for leaks; when the leak-checking test
+goes first, a later buffer-heavy test pays a tracking cost on every buffer it
+allocates.
 
 ### 8.1 Result
 
@@ -931,7 +955,7 @@ MultipartBodyTest.transferWithCopy
 The test allocates and releases many buffers.
 Thus, it amplifies the cost of the selected policy.
 
-### 8.5 Profile and operating-system evidence
+### 8.5 Profile evidence
 
 | `MultipartBodyTest` policy | Run time | Attributed allocation |
 |---|---:|---:|
@@ -949,18 +973,9 @@ ResourceLeakDetector$DefaultResourceLeak.close
 
 The `SIMPLE` recording does not have this per-buffer close path.
 
-Garbage collection takes 12 ms in the median `SIMPLE` boundary interval.
-It takes 14 ms in the median `PARANOID` boundary interval.
-The 2-ms difference cannot explain the 342.4-ms median difference for the
-consumer.
+Garbage collection differs by only 2 ms between the two policies.
+It cannot explain the 342.4-ms median difference for the consumer.
 The leak-tracker allocation and close path is the direct cause.
-
-The operating-system counters support the JVM evidence.
-The slow order has a median peak resident set size of 311,418,880 bytes.
-The fast order has a median peak resident set size of 304,611,328 bytes.
-The slow order also has more page reclaims and involuntary context switches.
-These counters are effects of the additional work.
-They do not identify the mechanism by themselves.
 
 ### 8.6 Check
 
@@ -1010,6 +1025,10 @@ If the build must keep the late extension behavior, CSTO2 must put large
 buffer consumers before the first extension test.
 
 ## 9. AsyncHttpClient: leaked connection-pool policy
+
+One test leaves "do not reuse connections" cached in the
+client's configuration, so later tests open and close a fresh network
+connection for every request instead of reusing pooled ones.
 
 ### 9.1 Result
 
@@ -1271,6 +1290,10 @@ If the source fix is not possible, the order generator must put a cache-clearing
 
 ## 10. Gson: shared Guava iterator optimization
 
+Two generated suites run the same test-framework code; when the
+big suite goes first, it gets that shared code fully compiled sooner, so the
+small suite runs almost entirely on fast code and the total is lower.
+
 ### 10.1 Result
 
 Gson is project 18 in the paper data.
@@ -1520,6 +1543,10 @@ Class names alone do not show this relation.
 
 ## 11. SnakeYAML: compiler-queue delay plus recursive-map uncommon trap
 
+A compiler-heavy test clogs the JIT compiler's queue, so the
+next test's hottest method never gets fully optimized and runs in slow form for
+the rest of the fork.
+
 ### 11.1 Result
 
 This result is separate from the shared first-use initialization in section 5.
@@ -1733,6 +1760,10 @@ It must also record:
 - asymmetry between an ordinary JavaBean graph and a recursive map graph.
 
 ## 12. SnakeYAML: compact-notation regular expression on Java 8
+
+One test spends its time in a regular expression that is
+expensive on Java 8, and that path runs measurably slower after the other 348
+classes have run; putting the test first saves about half a second per run.
 
 ### 12.1 Result
 
