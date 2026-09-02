@@ -109,3 +109,17 @@ with equal values keep their initial relative order. This rule is the same as th
 We parse the Surefire reports with the standard `xml.etree.ElementTree` module.
 The reports are local files from the user's own build, thus a hardened external
 parser is not necessary (see D1).
+
+## D17 — Custom test-boundary events (changes D3 and D7; not implemented yet)
+
+We inject a test listener into the Surefire fork. The listener emits a custom JFR
+event at the start and at the end of each test class. We then give each JFR event
+in a test's time period to that test, on all threads. We select this method because
+it captures all data in the test's time period, including data from threads that
+the test starts and data from events without stack traces. Thus it is more reliable
+than stack-trace attribution (D7).
+
+## D18 — Parallel test execution
+
+We do not support builds that run multiple tests at the same time. The time periods
+of parallel tests overlap, and an overlapped period cannot give an event one owner.
