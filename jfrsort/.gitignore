@@ -1,4 +1,5 @@
 .jfrsort/
+agent/target/
 out/
 *.jfr
 __pycache__/
