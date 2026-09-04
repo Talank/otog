@@ -175,3 +175,14 @@ D18.
 The orchestrator stays in Python (see D1). Only the in-fork listener is Java,
 because it must run in the test JVM. The tool builds the agent jar with Maven on
 first use.
+
+## D27 — Events for the PROBO metric set
+
+We add recording overrides so the recordings contain the events behind the 44 JFR
+metrics of Baz, Lam, and Shi (PROBO, ISSTA 2026): `jdk.Compilation#threshold=0ms`,
+`jdk.ClassLoad#enabled=true`, and 0 ms thresholds for file, socket, monitor-enter,
+and thread-sleep events. The profile preset removes almost all of these events with
+its thresholds, and the paper's strongest predictors of testing time (the
+compilation rates) need each compilation event. The one exception: TLAB efficiency
+needs the exact TLAB allocation events, which stay off because of their volume; that
+metric is not in the paper's list of consistently important metrics.

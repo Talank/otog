@@ -90,6 +90,13 @@ def run_profiled(project: Path, run_dir: Path, mvn: str, agent_jar: Path,
         f"-javaagent:{agent_jar} "
         "-XX:StartFlightRecording:settings=profile,"
         "jdk.ObjectAllocationSample#throttle=1000/s,"
+        # events behind the PROBO metric set (Baz/Lam/Shi, ISSTA 2026): the
+        # profile preset's thresholds suppress these events almost entirely
+        "jdk.Compilation#threshold=0ms,"
+        "jdk.ClassLoad#enabled=true,"
+        "jdk.FileRead#threshold=0ms,jdk.FileWrite#threshold=0ms,"
+        "jdk.SocketRead#threshold=0ms,jdk.SocketWrite#threshold=0ms,"
+        "jdk.JavaMonitorEnter#threshold=0ms,jdk.ThreadSleep#threshold=0ms,"
         f"dumponexit=true,filename={jfr_dir}/"
     )
     log = run_dir / "mvn.log"
