@@ -68,7 +68,7 @@ percentage for each run.
 We change each nested class name (`com.Foo$Bar`) to its top-level class name
 (`com.Foo`). Surefire orders top-level classes, and csto2 uses the same rule.
 
-## D9 — Test list source
+## D9 — Test list source (replaced by D23 and D30)
 
 We read the test-class list from the Surefire XML reports (`TEST-*.xml`). These
 reports show the classes that ran, thus the list agrees with `mvn test`.
@@ -84,7 +84,7 @@ approximately the execution order.
 We remove each recording that has zero attributed weight. The Maven launcher JVM
 also reads `JAVA_TOOL_OPTIONS` and makes a recording, and this rule removes it.
 
-## D12 — Stale reports
+## D12 — Stale reports (replaced by D30)
 
 We delete all `target/surefire-reports` directories before each run. Thus reports
 from an earlier run cannot go into the test list.
@@ -186,3 +186,23 @@ its thresholds, and the paper's strongest predictors of testing time (the
 compilation rates) need each compilation event. The one exception: TLAB efficiency
 needs the exact TLAB allocation events, which stay off because of their volume; that
 metric is not in the paper's list of consistently important metrics.
+
+## D28 — Two phases
+
+We split the tool into `collect` and `sort`. `collect` only runs the suite and stores
+the recordings and build logs; `sort` only reads them. Thus we can sort the same
+recordings again, with a different metric, without new runs.
+
+## D29 — Test orders
+
+`collect --order FILE` runs the suite with `mvn test -Dsurefire.runOrder=testorder
+-Dtest=FILE`, the form in the README of the surefire testorder fork, with its
+extension in the Maven installation's `lib/ext`. Each order file gets its own arm
+under the output directory, and the rounds go outside the arms, thus the repeats of
+one arm are spread over time.
+
+## D30 — Sort input
+
+`sort` reads only the recordings. The test list and the initial order come from the
+window events of the first arm's run 1, the mean goes over all collected runs, and we
+do not read the Surefire reports any more.

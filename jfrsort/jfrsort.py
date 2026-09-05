@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """jfrsort: sort a Maven project's test classes by JFR-measured metrics.
 
-Pipeline: run `mvn test` N times with a JFR recording on every forked JVM and
-a -javaagent (agent/) whose JUnit Platform listener emits one custom
-jfrsort.TestClass event spanning each top-level test class. Each JFR event is
-attributed to the test class whose time window contains it, on any thread.
-The per-class metric is averaged over the N runs and the classes are emitted
-sorted by it, descending.
+Two phases, run separately:
 
-The only metric implemented today is `alloc`: estimated allocated heap bytes
-per test class, from jdk.ObjectAllocationSample event weights. The sort rule
-matches csto2's alloc-sort: a stable sort of the initial order by the metric,
-descending, so ties keep their initial relative order.
+  jfrsort.py collect --project DIR [--runs N] [--order FILE ...] [--out DIR]
+  jfrsort.py sort    [--out DIR] [--metric alloc]
+
+`collect` runs the suite N times with a JFR recording on every forked JVM and
+a -javaagent (agent/) whose JUnit Platform listener emits one custom
+jfrsort.TestClass event spanning each top-level test class. Recordings and
+build logs are organized under the output directory. With --order (repeatable)
+each given order file — one test class per line — is run N times through the
+surefire testorder fork (its extension must be in the Maven installation's
+lib/ext; see the fork's README).
+
+`sort` parses the collected recordings: each JFR event is attributed to the
+test class whose time window contains it, on any thread; the per-class metric
+is averaged over all collected runs and the classes are written sorted by it,
+descending. The only metric today is `alloc` (estimated allocated heap bytes,
+from jdk.ObjectAllocationSample event weights); the sort rule matches csto2's
+alloc-sort: a stable sort of the initial order, so ties keep their order.
 """
 
 import argparse
@@ -20,16 +28,15 @@ import csv
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from xml.etree import ElementTree
 
 TOOL_DIR = Path(__file__).resolve().parent
 WINDOW_EVENT = "jfrsort.TestClass"
+MANIFEST = "collect.json"
 
 # metric name -> the JFR event to collect and the field holding the per-event value
 METRICS = {
@@ -64,6 +71,8 @@ def dur_ns(s: str) -> int:
     return total
 
 
+# ---------------------------------------------------------------- collect ---
+
 def ensure_agent(mvn: str) -> Path:
     jar = TOOL_DIR / "agent/target/jfrsort-agent.jar"
     if not jar.exists():
@@ -74,17 +83,18 @@ def ensure_agent(mvn: str) -> Path:
     return jar
 
 
-def clean_reports(project: Path):
-    for rep in project.rglob("target/surefire-reports"):
-        shutil.rmtree(rep, ignore_errors=True)
+def mvn_command(mvn: str, order: str | None, maven_args: list[str]) -> list[str]:
+    """Plain `mvn test`; with an order file, the surefire testorder fork's form
+    (its extension must be installed in the Maven installation's lib/ext)."""
+    if order is None:
+        return [mvn, "-B", "test", *maven_args]
+    return [mvn, "-B", "test", "-Dsurefire.runOrder=testorder", f"-Dtest={order}", *maven_args]
 
 
-def run_profiled(project: Path, run_dir: Path, mvn: str, agent_jar: Path,
-                 maven_args: list[str]) -> tuple[Path, float]:
-    """One `mvn test` run with the agent and JFR on every JVM."""
+def run_profiled(project: Path, run_dir: Path, cmd: list[str], agent_jar: Path) -> float:
+    """One profiled suite run; recordings land in <run_dir>/jfr. Returns wall seconds."""
     jfr_dir = run_dir / "jfr"
     jfr_dir.mkdir(parents=True, exist_ok=True)
-    clean_reports(project)
     env = dict(os.environ)
     env["JAVA_TOOL_OPTIONS"] = (
         f"-javaagent:{agent_jar} "
@@ -102,28 +112,54 @@ def run_profiled(project: Path, run_dir: Path, mvn: str, agent_jar: Path,
     log = run_dir / "mvn.log"
     t0 = time.time()
     with open(log, "w") as lf:
-        rc = subprocess.run([mvn, "-B", "test", *maven_args],
-                            cwd=project, env=env,
+        rc = subprocess.run(cmd, cwd=project, env=env,
                             stdout=lf, stderr=subprocess.STDOUT).returncode
     wall = time.time() - t0
     if rc != 0:
-        sys.exit(f"jfrsort: mvn test failed (exit {rc}); see {log}. "
+        sys.exit(f"jfrsort: build failed (exit {rc}); see {log}. "
                  "The suite must be green before it can be profiled.")
-    return jfr_dir, wall
+    return wall
 
 
-def report_classes(project: Path) -> set[str]:
-    """Top-level test classes named by the Surefire XML reports (cross-check only)."""
-    classes = set()
-    for rep in project.rglob("target/surefire-reports/TEST-*.xml"):
-        try:
-            name = ElementTree.parse(rep).getroot().get("name")
-        except ElementTree.ParseError:
-            continue
-        if name:
-            classes.add(name.split("$", 1)[0])
-    return classes
+def cmd_collect(args):
+    project = args.project.resolve()
+    out = args.out.resolve()
+    agent_jar = ensure_agent(args.mvn)
+    maven_args = args.maven_args.split()
 
+    if args.order:
+        arms, labels = [], set()
+        for of in args.order:
+            path = Path(of).resolve()
+            if not path.is_file():
+                sys.exit(f"jfrsort: order file {path} not found")
+            label, n = path.stem, 2
+            while label in labels:
+                label, n = f"{path.stem}-{n}", n + 1
+            labels.add(label)
+            arms.append({"label": label, "order": str(path)})
+    else:
+        arms = [{"label": "default", "order": None}]
+
+    out.mkdir(parents=True, exist_ok=True)
+    (out / MANIFEST).write_text(json.dumps({
+        "project": str(project), "runs": args.runs, "arms": arms,
+        "created": datetime.now().isoformat(timespec="seconds")}, indent=1))
+
+    # rounds outside, arms inside: repeats of one arm are spread over time
+    for i in range(1, args.runs + 1):
+        for arm in arms:
+            run_dir = out / arm["label"] / f"run-{i}"
+            print(f"[jfrsort] collect {arm['label']} run {i}/{args.runs} ...", flush=True)
+            cmd = mvn_command(args.mvn, arm["order"], maven_args)
+            wall = run_profiled(project, run_dir, cmd, agent_jar)
+            n = len(list((run_dir / "jfr").glob("*.jfr")))
+            print(f"[jfrsort] collect {arm['label']} run {i}: {wall:.0f}s, {n} recording(s)",
+                  flush=True)
+    print(f"[jfrsort] collected into {out} — next: jfrsort.py sort --out {out}")
+
+
+# ------------------------------------------------------------------- sort ---
 
 def parse_recording(jfr_bin: str, rec: Path, metric: dict) -> dict | None:
     """Windows + attributed metric values for one recording.
@@ -165,7 +201,6 @@ def parse_recording(jfr_bin: str, rec: Path, metric: dict) -> dict | None:
     for start, end, cls in windows:
         per_class.setdefault(cls, 0.0)
         window_ns[cls] = window_ns.get(cls, 0) + (end - start)
-
     unattributed = 0.0
     for ts, value in samples:
         i = bisect.bisect_right(starts, ts) - 1
@@ -206,80 +241,86 @@ def collect_run(jfr_bin: str, jfr_dir: Path, metric: dict) -> dict:
             "order": order, "recordings_kept": kept, "recordings_dropped": dropped}
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--project", required=True, type=Path,
-                    help="Maven project/module directory to run `mvn test` in")
-    ap.add_argument("--runs", type=int, default=3,
-                    help="number of profiled mvn test runs to average (default 3)")
-    ap.add_argument("--metric", choices=sorted(METRICS), default="alloc")
-    ap.add_argument("--out", type=Path, default=Path(".jfrsort"),
-                    help="output directory (default .jfrsort)")
-    ap.add_argument("--mvn", default="mvn", help="Maven binary (default mvn)")
-    ap.add_argument("--jfr-bin", default="jfr", help="jfr CLI binary (default jfr)")
-    ap.add_argument("--maven-args", default="",
-                    help="extra arguments appended to the mvn command line")
-    args = ap.parse_args()
-
-    project = args.project.resolve()
+def cmd_sort(args):
     out = args.out.resolve()
     metric = METRICS[args.metric]
-    maven_args = args.maven_args.split()
-    agent_jar = ensure_agent(args.mvn)
+    manifest_path = out / MANIFEST
+    if not manifest_path.is_file():
+        sys.exit(f"jfrsort: {manifest_path} not found — run `jfrsort.py collect` first")
+    manifest = json.loads(manifest_path.read_text())
 
     runs = []
     tests_initial = None
-    for i in range(1, args.runs + 1):
-        run_dir = out / f"run-{i}"
-        print(f"[jfrsort] run {i}/{args.runs}: mvn test with JFR ...", flush=True)
-        jfr_dir, wall = run_profiled(project, run_dir, args.mvn, agent_jar, maven_args)
-        data = collect_run(args.jfr_bin, jfr_dir, metric)
-        data["wall_seconds"] = round(wall, 1)
-        (run_dir / "metrics.json").write_text(json.dumps(data, indent=1))
-        runs.append(data)
+    for arm in manifest["arms"]:
+        for i in range(1, manifest["runs"] + 1):
+            run_dir = out / arm["label"] / f"run-{i}"
+            if not (run_dir / "jfr").is_dir():
+                sys.exit(f"jfrsort: {run_dir}/jfr missing — collect did not finish")
+            data = collect_run(args.jfr_bin, run_dir / "jfr", metric)
+            (run_dir / "metrics.json").write_text(json.dumps(data, indent=1))
+            runs.append(data)
+            if tests_initial is None:
+                tests_initial = data["order"]    # first arm, run 1
+            elif set(data["order"]) != set(tests_initial):
+                print(f"[jfrsort] WARNING: {arm['label']} run {i} test set differs; "
+                      "using the union", file=sys.stderr)
+                tests_initial += [t for t in data["order"] if t not in tests_initial]
+            attr = sum(data["per_class"].values())
+            total = attr + data["unattributed"]
+            pct = 100.0 * attr / total if total else 0.0
+            print(f"[jfrsort] {arm['label']} run {i}: {len(data['order'])} classes, "
+                  f"{pct:.1f}% of {args.metric} weight attributed", flush=True)
 
-        reported = report_classes(project)
-        if reported != set(data["order"]):
-            print(f"[jfrsort] WARNING: run {i}: JFR windows and Surefire reports disagree "
-                  f"(windows only: {sorted(set(data['order']) - reported)}, "
-                  f"reports only: {sorted(reported - set(data['order']))})", file=sys.stderr)
-        if tests_initial is None:
-            tests_initial = data["order"]        # run 1 defines the initial order
-        elif set(data["order"]) != set(tests_initial):
-            print(f"[jfrsort] WARNING: run {i} test set differs from run 1; using the union",
-                  file=sys.stderr)
-            tests_initial += [t for t in data["order"] if t not in tests_initial]
-
-        attr = sum(data["per_class"].values())
-        total = attr + data["unattributed"]
-        pct = 100.0 * attr / total if total else 0.0
-        print(f"[jfrsort] run {i}: {wall:.0f}s, {len(data['recordings_kept'])} test JVM(s), "
-              f"{len(data['order'])} classes, {pct:.1f}% of {args.metric} weight attributed",
-              flush=True)
-
-    # average over runs; a class with no samples in a run counts 0 for that run
+    # average over all runs; a class with no samples in a run counts 0 for that run
     mean = {t: sum(r["per_class"].get(t, 0.0) for r in runs) / len(runs)
             for t in tests_initial}
 
     # csto2 alloc-sort rule: stable sort of the initial order, metric descending
     order = sorted(tests_initial, key=lambda t: -mean[t])
 
-    out.mkdir(parents=True, exist_ok=True)
     order_file = out / f"order-{args.metric}-sort.txt"
     order_file.write_text("\n".join(order) + "\n")
     with open(out / "metrics.csv", "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["test", f"mean_{args.metric}"] +
-                   [f"run{i+1}_{args.metric}" for i in range(len(runs))])
+        w.writerow(["test", f"mean_{args.metric}", "runs_with_samples"])
         for t in order:
-            w.writerow([t, round(mean[t])] +
-                       [round(r["per_class"].get(t, 0.0)) for r in runs])
+            vals = [r["per_class"].get(t, 0.0) for r in runs]
+            w.writerow([t, round(mean[t]), sum(1 for v in vals if v > 0)])
 
-    print(f"\n[jfrsort] {len(order)} test classes, sorted by mean {args.metric} (descending):")
+    print(f"\n[jfrsort] {len(order)} test classes over {len(runs)} run(s), "
+          f"sorted by mean {args.metric} (descending):")
     for t in order:
         print(f"  {mean[t]/1e6:12.1f} MB  {t}")
     print(f"\n[jfrsort] order written to {order_file}")
-    print(f"[jfrsort] per-run metrics in {out}/run-*/metrics.json, table in {out}/metrics.csv")
+    print(f"[jfrsort] per-run metrics in {out}/*/run-*/metrics.json, table in {out}/metrics.csv")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    c = sub.add_parser("collect", help="run the suite under JFR and store recordings + logs")
+    c.add_argument("--project", required=True, type=Path,
+                   help="Maven project/module directory to run the suite in")
+    c.add_argument("--runs", type=int, default=3,
+                   help="profiled runs per order (default 3)")
+    c.add_argument("--order", action="append", metavar="FILE",
+                   help="test-order file (one class per line); repeatable. Needs the "
+                        "surefire testorder fork's extension in Maven's lib/ext")
+    c.add_argument("--out", type=Path, default=Path(".jfrsort"))
+    c.add_argument("--mvn", default="mvn")
+    c.add_argument("--maven-args", default="",
+                   help="extra arguments appended to the mvn command line")
+    c.set_defaults(func=cmd_collect)
+
+    s = sub.add_parser("sort", help="parse collected recordings and write the sorted order")
+    s.add_argument("--out", type=Path, default=Path(".jfrsort"))
+    s.add_argument("--metric", choices=sorted(METRICS), default="alloc")
+    s.add_argument("--jfr-bin", default="jfr")
+    s.set_defaults(func=cmd_sort)
+
+    args = ap.parse_args()
+    args.func(args)
 
 
 if __name__ == "__main__":
