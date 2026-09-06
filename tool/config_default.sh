@@ -27,6 +27,7 @@ otog_orders_dir="$otog_root/orders"
 # so setup.sh fetches them once. A google drive link is handled with gdown, any
 # other URL with curl.
 otog_orders_url="${OTOG_ORDERS_URL:-https://drive.google.com/file/d/1YWehYp3KAh2KubJcHE2w600N_qgicdZz/view?usp=sharing}"
+otog_dependency_url="${OTOG_DEPENDENCY_URL:-https://drive.google.com/file/d/1oqSBp0uDcBrmQWD-SnE4zvONCwtROvmd/view?usp=sharing}"
 otog_runs_dir="${OTOG_RUNS_DIR:-$otog_root/runs}"
 otog_workspace_root="${OTOG_WORKSPACE_ROOT:-$otog_root/workspaces}"
 otog_dependency_dir="$otog_root/dependency"

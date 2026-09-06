@@ -7,3 +7,4 @@ config.sh
 orders/
 orders.zip
 .pytest_cache/
+dependency.zip

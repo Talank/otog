@@ -72,9 +72,6 @@ build_images() {
 }
 
 fetch_orders() {
-    # The orders are the input to every run and far too big for git, so they
-    # are fetched once and kept. The zip is kept too: unpacking again is free,
-    # downloading 2 GB again is not.
     local zip="$tool_dir/orders.zip"
 
     [ -n "$(ls -A "$otog_orders_dir" 2> /dev/null)" ] && { say "have   orders/"; return 0; }
@@ -90,6 +87,25 @@ fetch_orders() {
     fi
 
     say "unzip  orders.zip -> orders/"
+    unzip -q -o "$zip" -d "$tool_dir" || return 1
+}
+
+fetch_dependency() {
+    local zip="$tool_dir/dependency.zip"
+
+    [ -n "$(ls -A "$otog_dependency_dir" 2> /dev/null)" ] && { say "have   dependency/"; return 0; }
+
+    if [ -z "$otog_dependency_url" ]; then
+        fail "no dependency URL -- set otog_dependency_url in config.sh, or unpack dependency.zip here yourself"
+        return 1
+    fi
+
+    if [ ! -s "$zip" ]; then
+        say "fetch  dependency.zip"
+        download_file "$otog_dependency_url" "$zip" || return 1
+    fi
+
+    say "unzip  dependency.zip -> dependency/"
     unzip -q -o "$zip" -d "$tool_dir" || return 1
 }
 
@@ -111,4 +127,5 @@ save_engine  || die "could not write config.sh"
 make_dirs    || die "could not create directories"
 build_images || die "could not build the images"
 fetch_orders || die "could not fetch the orders"
+fetch_dependency || die "could not fetch the dependency"
 report
