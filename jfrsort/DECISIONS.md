@@ -1,0 +1,234 @@
+# Decision log
+
+This log records each arbitrary decision in jfrsort. The style is ASD-STE100
+Simplified Technical English. Each entry gives the decision and the reason.
+
+## D1 — Tool language
+
+We write the tool in Python 3 with only the standard library. Thus the tool has no
+build step and no dependencies.
+
+## D2 — Profiled run command
+
+We start each profiled run with the command `mvn -B test` in the project directory.
+This command is the same command that developers use, thus the measured runs agree
+with the usual builds.
+
+## D3 — How we start JFR
+
+We set the environment variable `JAVA_TOOL_OPTIONS` to
+`-XX:StartFlightRecording:settings=profile,dumponexit=true,filename=<run dir>/`.
+Each JVM in the build reads this variable, thus each Surefire fork makes a recording,
+and the `argLine` of the project pom stays unchanged.
+
+## D4 — Stack depth in the recording (replaced by D21)
+
+We set `-XX:FlightRecorderOptions:stackdepth=1024`. The default depth of 64 cuts the
+deep JUnit and coverage-agent stacks, and a cut stack loses the test-class frame.
+With depth 128 on commons-csv, cut stacks held 1.1 GB of the sample weight.
+Window attribution (D21) does not read stacks, thus we do not set this option now.
+
+## D5 — Allocation metric
+
+We measure allocation with the `weight` field of `jdk.ObjectAllocationSample` events.
+The weight is an estimate of the allocated bytes, and the sampled event has a much
+lower overhead than the full TLAB allocation events.
+
+## D6 — Recording parser
+
+We parse each recording with the command `jfr print --json --stack-depth 1024
+--events jdk.ObjectAllocationSample <file>`. The `jfr` tool is part of the JDK, thus
+we do not add a JFR library.
+
+## D6a — Stack depth in the parser (replaced by D21)
+
+We give `--stack-depth 1024` to `jfr print`. Without this option, `jfr print` shows
+only five frames for each event. Five frames almost never include the test-class
+frame, and on commons-csv only 15 percent of the weight got an owner. With the
+option, 90 percent of the weight got an owner. Window attribution (D21) does not
+read stacks, thus we do not give this option now.
+
+## D7 — Event attribution (replaced by D21)
+
+We examine the stack frames of each event from the innermost frame to the outermost
+frame. The first frame with a known test class gets the full weight of the event.
+Thus allocations in library code go to the test that caused them.
+
+Stack traces are the only attribution method that does not change the test run.
+Surefire runs all test classes on one thread, thus the thread identity cannot give
+the owner. Time windows for each class need a listener in the fork, and we do not
+add one (see D2 and D3). The trade-off: an allocation on a thread that a test starts
+does not have the test frame on its stack, thus this weight, and the weight of
+framework and coverage-agent work, stays unattributed. On commons-csv this loss is
+approximately 10 percent of the total weight, and the tool prints the attributed
+percentage for each run.
+
+## D8 — Nested classes
+
+We change each nested class name (`com.Foo$Bar`) to its top-level class name
+(`com.Foo`). Surefire orders top-level classes, and csto2 uses the same rule.
+
+## D9 — Test list source (replaced by D23 and D30)
+
+We read the test-class list from the Surefire XML reports (`TEST-*.xml`). These
+reports show the classes that ran, thus the list agrees with `mvn test`.
+
+## D10 — Initial order (replaced by D23)
+
+We use the ascending modification times of the run-1 report files as the initial
+order. Surefire writes each report when its class completes, thus this order is
+approximately the execution order.
+
+## D11 — Non-test recordings (replaced by D24)
+
+We remove each recording that has zero attributed weight. The Maven launcher JVM
+also reads `JAVA_TOOL_OPTIONS` and makes a recording, and this rule removes it.
+
+## D12 — Stale reports (replaced by D30)
+
+We delete all `target/surefire-reports` directories before each run. Thus reports
+from an earlier run cannot go into the test list.
+
+## D13 — Red suites
+
+We stop with an error if `mvn test` fails. Metrics from a red run are not safe,
+and csto2 uses the same rule.
+
+## D14 — Aggregation
+
+We compute the arithmetic mean of the attributed bytes for each class across the N
+runs. A class with no samples in a run gives the value 0 for that run. The mean of
+independent runs decreases the sampling variance.
+
+## D15 — Sort rule
+
+We do a stable sort of the initial order by the mean metric, descending. Classes
+with equal values keep their initial relative order. This rule is the same as the
+`alloc-sort` rule in csto2.
+
+## D16 — XML parser
+
+We parse the Surefire reports with the standard `xml.etree.ElementTree` module.
+The reports are local files from the user's own build, thus a hardened external
+parser is not necessary (see D1).
+
+## D17 — Custom test-boundary events (changes D3 and D7)
+
+We inject a test listener into the Surefire fork. The listener emits a custom JFR
+event at the start and at the end of each test class. We then give each JFR event
+in a test's time period to that test, on all threads. We select this method because
+it captures all data in the test's time period, including data from threads that
+the test starts and data from events without stack traces. Thus it is more reliable
+than stack-trace attribution (D7).
+
+## D18 — Parallel test execution
+
+We do not support builds that run multiple tests at the same time. The time periods
+of parallel tests overlap, and an overlapped period cannot give an event one owner.
+
+## D19 — Listener injection
+
+We add `-javaagent:jfrsort-agent.jar` to `JAVA_TOOL_OPTIONS`, and the agent's
+premain appends its jar to the system classloader. Thus the JUnit Platform
+ServiceLoader finds the listener in the Surefire fork, and the pom stays unchanged.
+The target must run its tests through the JUnit Platform (JUnit 5, or JUnit 4
+through the vintage engine).
+
+## D20 — Window event design
+
+The listener makes one `jfrsort.TestClass` event for each top-level test class:
+`begin()` at container start and `commit()` at container finish, thus the event's
+start time and duration give the class window. Only containers with a `ClassSource`
+and no `$` in the class name open a window, thus nested classes and test methods
+stay inside their top-level window.
+
+## D21 — Window attribution (replaces D4, D6a, D7)
+
+We give each metric event to the test class whose time window contains the event,
+on all threads. Events outside all windows (JVM start, test discovery, gaps between
+classes) stay unattributed. This rule implements D17.
+
+## D22 — Sampler throttle
+
+We set `jdk.ObjectAllocationSample#throttle=1000/s` in the recording options, above
+the 150/s of the profile settings. More samples each second make the per-class
+estimate more exact and decrease the run-to-run variance.
+
+## D23 — Initial order and test list (replaces D10)
+
+We take the test list and the initial order from the run-1 window events, in
+start-time order. These events come from the same clock as the metric events. We
+keep the Surefire reports as a cross-check and give a warning on a difference.
+
+## D24 — Non-test recordings (replaces D11)
+
+We remove each recording that has no `jfrsort.TestClass` events. A JVM without
+test windows ran no tests; this removes the Maven launcher JVM.
+
+## D25 — Overlap check
+
+We stop with an error if two windows overlap in one recording. This check enforces
+D18.
+
+## D26 — Tool languages
+
+The orchestrator stays in Python (see D1). Only the in-fork listener is Java,
+because it must run in the test JVM. The tool builds the agent jar with Maven on
+first use.
+
+## D27 — Events for the PROBO metric set
+
+We add recording overrides so the recordings contain the events behind the 44 JFR
+metrics of Baz, Lam, and Shi (PROBO, ISSTA 2026): `jdk.Compilation#threshold=0ms`,
+`jdk.ClassLoad#enabled=true`, and 0 ms thresholds for file, socket, monitor-enter,
+and thread-sleep events. The profile preset removes almost all of these events with
+its thresholds, and the paper's strongest predictors of testing time (the
+compilation rates) need each compilation event. The one exception: TLAB efficiency
+needs the exact TLAB allocation events, which stay off because of their volume; that
+metric is not in the paper's list of consistently important metrics.
+
+## D28 — Two phases
+
+We split the tool into `collect` and `sort`. `collect` only runs the suite and stores
+the recordings and build logs; `sort` only reads them. Thus we can sort the same
+recordings again, with a different metric, without new runs.
+
+## D29 — Test orders
+
+`collect --order FILE` runs the suite with `mvn test -Dsurefire.runOrder=testorder
+-Dtest=FILE`, the form in the README of the surefire testorder fork, and loads the
+fork's extension for that invocation only (`-Dmaven.ext.class.path`). An extension in
+the Maven installation's `lib/ext` makes every plain `mvn test` use the fork, and the
+fork fails without `-Dtest`. Each order file gets its own arm under the output
+directory, and the rounds go outside the arms, thus the repeats of one arm are spread
+over time.
+
+## D30 — Sort input
+
+`sort` reads only the recordings. The test list and the initial order come from the
+window events of the first arm's run 1, the mean goes over all collected runs, and we
+do not read the Surefire reports any more.
+
+## D31 — Append-only collection
+
+Each `collect` invocation adds runs to the output directory and never removes earlier
+runs: run numbers continue, and `collect.json` records each run when it completes.
+Thus an outer script can call `collect` many times, an interrupted collection keeps
+its finished runs, and `sort` uses all runs present. `--clean` deletes the directory
+first. One directory holds one project; `collect` refuses a different project.
+
+## D32 — Random orders
+
+`collect --random K` makes K shuffled orders from the class list of the earliest run
+in the directory (one default-order run is collected first if none exists, because
+the tool has no class scanner), with `random.Random(seed)`; the
+seed is printed and can be given with `--seed`. The orders are stored under `orders/`
+and each is copied into its run directory, thus every run stays reproducible. Random
+orders decorrelate a class from its position, which a repeated fixed order cannot.
+
+## D33 — Initial order for the sort
+
+`sort` takes the initial order from the earliest run in the directory, whatever its
+order. The sort keeps the initial order for classes with equal values only, and
+those are the classes with no samples, thus the source of the initial order is not
+important.
