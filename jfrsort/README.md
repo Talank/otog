@@ -1,48 +1,74 @@
 # jfrsort
 
-Sorts a Maven project's test classes by JFR-measured metrics. The only metric today is
-`alloc` (estimated allocated heap bytes per test class); the output order is a stable
-sort by the metric, descending, averaged over the collected runs.
+jfrsort sorts the test classes of a Maven project by a metric that Java Flight
+Recorder (JFR) measures. The metric `alloc` is the estimated number of heap bytes that
+each test class allocates. The output is the list of test classes in descending order of
+the mean metric over all collected runs.
 
-## Run
+## Example
 
 ```bash
-python3 jfrsort.py collect --project <maven module dir> [--runs 3] [--order FILE ...] \
-                           [--random K] [--seed S] [--clean] [--out DIR]
-python3 jfrsort.py sort [--out DIR] [--metric alloc]
+# Collect three runs in the default order, then sort.
+python3 jfrsort.py collect --project ~/Development/Research/commons-csv --out ./csv
+python3 jfrsort.py sort --out ./csv
+
+# Add ten runs in random orders to the same directory, then sort again.
+python3 jfrsort.py collect --project ~/Development/Research/commons-csv --out ./csv --random 10 --runs 1
+python3 jfrsort.py sort --out ./csv
 ```
 
-`collect` runs the suite under JFR and stores recordings and build logs; `sort` parses
-them and writes the order. Every `collect` appends to the output directory (run numbers
-continue, `collect.json` logs each run), so it can be called repeatedly, e.g. by an outer
-script feeding its own orders, and `sort` aggregates everything collected so far;
-`--clean` wipes the directory first. `--order` (repeatable) runs the suite in the order
-given by a file with one test class per line, through the surefire testorder fork;
-`--random K` generates K shuffled orders (from a default-order run, collected first if
-needed; `--seed` for reproducibility) and runs them the same way; `--runs` is the number
-of repeats per order. Other options: `--mvn BIN`, `--maven-args "..."`, `--jfr-bin BIN`,
-`--surefire-ext JAR`. The Java agent under `agent/` is built automatically on first use.
+Each `collect` adds runs to the output directory. `sort` uses all runs in the directory.
+
+## Options of `collect`
+
+| Option | Description |
+|---|---|
+| `--project DIR` | The Maven module directory. Required. One output directory holds one project. |
+| `--out DIR` | The output directory. Default: `.jfrsort`. |
+| `--runs N` | The number of repeats of each order. Default: 3. |
+| `--order FILE` | A test order to run: one fully qualified test class on each line. You can give this option more than one time. |
+| `--random K` | Make K random orders from the class list and run each of them `--runs` times. If the directory has no default-order run, `collect` does one first to get the class list. |
+| `--seed S` | The seed for `--random`. Default: a random seed, which `collect` prints. |
+| `--clean` | Delete the output directory before you collect. |
+| `--mvn BIN` | The Maven binary. Default: `mvn`. |
+| `--maven-args "..."` | Extra arguments for the `mvn` command line. |
+| `--surefire-ext JAR` | The extension jar of the surefire testorder fork. Default: the newest jar in `~/.m2`. |
+| `--jfr-bin BIN` | The `jfr` binary. Default: `jfr`. |
+
+## Options of `sort`
+
+| Option | Description |
+|---|---|
+| `--out DIR` | The output directory that `collect` filled. Default: `.jfrsort`. |
+| `--metric NAME` | The metric to sort by. Default and only value: `alloc`. |
+| `--jfr-bin BIN` | The `jfr` binary. Default: `jfr`. |
 
 ## Requirements
 
-- JDK 17+ with the `jfr` CLI on `PATH`; Maven.
-- The target suite must be green (build exit 0) and must run its tests through the
-  JUnit Platform (JUnit 5, or JUnit 4 via the vintage engine) with Surefire's
-  default `useSystemClassLoader=true`.
-- For `--order`/`--random`: the surefire testorder fork installed into `~/.m2`
-  (`mvn install -DskipTests -Drat.skip -Denforcer.skip` in the fork); its extension is
-  loaded per ordered invocation, so plain builds are unaffected.
-- A clean `target/test-classes`: leftovers from other tools (e.g. a `junit-platform.properties`
-  with a class orderer) silently override the requested order. `mvn clean` first if in doubt.
-- Parallel test execution is not supported.
+- JDK 17 or later, with the `jfr` tool on `PATH`, and Maven.
+- The test suite must be green. The tests must run through the JUnit Platform (JUnit 5,
+  or JUnit 4 through the vintage engine) with the Surefire default
+  `useSystemClassLoader=true`.
+- For `--order` and `--random`: the surefire testorder fork must be installed in `~/.m2`
+  (`mvn install -DskipTests -Drat.skip -Denforcer.skip` in the fork).
+- The directory `target/test-classes` of the project must be clean. Files from other
+  tools, for example a `junit-platform.properties` with a class orderer, change the
+  test order. Run `mvn clean` if you are not sure.
+- Tests that run in parallel are not supported.
 
-## Outputs (under `--out`)
+## Output files
 
-- `collect.json` — the project and a log of every collected run (arm, order file, directory).
-- `<arm>/run-<i>/` — per run: `jfr/*.jfr`, `mvn.log`, `order.txt` (for ordered runs), and
-  after `sort`, `metrics.json`. Arms are `default`, one per `--order` file (named by its
-  stem), or `random-<k>`; generated orders are kept under `orders/`.
-- `order-alloc-sort.txt` — sorted class list, one per line.
-- `metrics.csv` — per class: mean value and the number of runs with samples.
+| File | Content |
+|---|---|
+| `collect.json` | The project and a record of each collected run. |
+| `<arm>/run-<i>/jfr/*.jfr` | The JFR recordings of one run. |
+| `<arm>/run-<i>/mvn.log` | The Maven log of one run. |
+| `<arm>/run-<i>/order.txt` | The test order of one run, if the run had an order. |
+| `<arm>/run-<i>/metrics.json` | The per-class values of one run. `sort` writes this file. |
+| `orders/random-<k>.txt` | The orders that `--random` made. |
+| `order-alloc-sort.txt` | The sorted list of test classes, one on each line. |
+| `metrics.csv` | The mean value of each test class and the number of runs with samples. |
 
-Measurement decisions are logged in `DECISIONS.md`.
+An arm is `default`, the stem of an `--order` file, or `random-<k>`.
+
+The file `DECISIONS.md` records the measurement decisions.
