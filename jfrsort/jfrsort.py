@@ -3,16 +3,21 @@
 
 Two phases, run separately:
 
-  jfrsort.py collect --project DIR [--runs N] [--order FILE ...] [--out DIR]
+  jfrsort.py collect --project DIR [--runs N] [--order FILE ...] [--random K]
+                     [--seed S] [--clean] [--out DIR]
   jfrsort.py sort    [--out DIR] [--metric alloc]
 
-`collect` runs the suite N times with a JFR recording on every forked JVM and
-a -javaagent (agent/) whose JUnit Platform listener emits one custom
+`collect` runs the suite with a JFR recording on every forked JVM and a
+-javaagent (agent/) whose JUnit Platform listener emits one custom
 jfrsort.TestClass event spanning each top-level test class. Recordings and
-build logs are organized under the output directory. With --order (repeatable)
-each given order file — one test class per line — is run N times through the
-surefire testorder fork (its extension must be in the Maven installation's
-lib/ext; see the fork's README).
+build logs are organized under the output directory. Every invocation APPENDS
+to that directory (run numbers continue; collect.json logs each run), so an
+outer script can call it repeatedly and `sort` aggregates everything collected
+so far; --clean wipes the directory first. --order FILE (repeatable) runs the
+given order — one test class per line — through the surefire testorder fork
+(installed in ~/.m2; its extension is loaded per invocation); --random K
+generates K shuffled orders from the project's class list and runs them the
+same way. --runs is the number of repeats per order.
 
 `sort` parses the collected recordings: each JFR event is attributed to the
 test class whose time window contains it, on any thread; the per-class metric
@@ -27,7 +32,9 @@ import bisect
 import csv
 import json
 import os
+import random
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -83,12 +90,29 @@ def ensure_agent(mvn: str) -> Path:
     return jar
 
 
-def mvn_command(mvn: str, order: str | None, maven_args: list[str]) -> list[str]:
-    """Plain `mvn test`; with an order file, the surefire testorder fork's form
-    (its extension must be installed in the Maven installation's lib/ext)."""
+def find_surefire_ext(override: str | None) -> Path:
+    """The surefire testorder fork's Maven extension jar, installed in ~/.m2."""
+    if override:
+        p = Path(override)
+        if not p.is_file():
+            sys.exit(f"jfrsort: --surefire-ext {p} not found")
+        return p
+    base = Path.home() / ".m2/repository/fun/jvm/surefire/flaky/surefire-changing-maven-extension"
+    jars = sorted(base.rglob("surefire-changing-maven-extension-*.jar")) if base.is_dir() else []
+    if not jars:
+        sys.exit("jfrsort: ordered runs need the surefire testorder fork installed "
+                 "(mvn install -DskipTests -Drat.skip -Denforcer.skip in the fork), "
+                 "or pass --surefire-ext <jar>")
+    return jars[-1]
+
+
+def mvn_command(mvn: str, order: str | None, ext: Path | None, maven_args: list[str]) -> list[str]:
+    """Plain `mvn test`; with an order file, the surefire testorder fork's form,
+    loading its extension for this invocation only (-Dmaven.ext.class.path)."""
     if order is None:
         return [mvn, "-B", "test", *maven_args]
-    return [mvn, "-B", "test", "-Dsurefire.runOrder=testorder", f"-Dtest={order}", *maven_args]
+    return [mvn, "-B", "test", f"-Dmaven.ext.class.path={ext}",
+            "-Dsurefire.runOrder=testorder", f"-Dtest={order}", *maven_args]
 
 
 def run_profiled(project: Path, run_dir: Path, cmd: list[str], agent_jar: Path) -> float:
@@ -121,42 +145,100 @@ def run_profiled(project: Path, run_dir: Path, cmd: list[str], agent_jar: Path) 
     return wall
 
 
+def load_manifest(out: Path) -> dict:
+    p = out / MANIFEST
+    if p.is_file():
+        return json.loads(p.read_text())
+    return {"project": None, "runs": []}
+
+
+def save_manifest(out: Path, manifest: dict):
+    (out / MANIFEST).write_text(json.dumps(manifest, indent=1))
+
+
+def next_run_number(out: Path, label: str) -> int:
+    nums = [int(p.name[4:]) for p in (out / label).glob("run-*") if p.name[4:].isdigit()]
+    return max(nums, default=0) + 1
+
+
+def class_list(out: Path, manifest: dict, jfr_bin: str) -> list[str] | None:
+    """Test classes in execution order from the earliest default-order run."""
+    for rec in manifest["runs"]:
+        if rec["order"] is None:
+            data = collect_run(jfr_bin, out / rec["dir"] / "jfr", METRICS["alloc"])
+            return data["order"]
+    return None
+
+
 def cmd_collect(args):
     project = args.project.resolve()
     out = args.out.resolve()
+    if args.clean and out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True, exist_ok=True)
+    manifest = load_manifest(out)
+    if manifest["project"] and manifest["project"] != str(project):
+        sys.exit(f"jfrsort: {out} holds runs of {manifest['project']}; "
+                 "use another --out or --clean")
+    manifest["project"] = str(project)
     agent_jar = ensure_agent(args.mvn)
     maven_args = args.maven_args.split()
 
-    if args.order:
-        arms, labels = [], set()
-        for of in args.order:
-            path = Path(of).resolve()
-            if not path.is_file():
-                sys.exit(f"jfrsort: order file {path} not found")
-            label, n = path.stem, 2
-            while label in labels:
-                label, n = f"{path.stem}-{n}", n + 1
-            labels.add(label)
-            arms.append({"label": label, "order": str(path)})
-    else:
-        arms = [{"label": "default", "order": None}]
-
-    out.mkdir(parents=True, exist_ok=True)
-    (out / MANIFEST).write_text(json.dumps({
-        "project": str(project), "runs": args.runs, "arms": arms,
-        "created": datetime.now().isoformat(timespec="seconds")}, indent=1))
-
-    # rounds outside, arms inside: repeats of one arm are spread over time
-    for i in range(1, args.runs + 1):
-        for arm in arms:
-            run_dir = out / arm["label"] / f"run-{i}"
-            print(f"[jfrsort] collect {arm['label']} run {i}/{args.runs} ...", flush=True)
-            cmd = mvn_command(args.mvn, arm["order"], maven_args)
-            wall = run_profiled(project, run_dir, cmd, agent_jar)
-            n = len(list((run_dir / "jfr").glob("*.jfr")))
-            print(f"[jfrsort] collect {arm['label']} run {i}: {wall:.0f}s, {n} recording(s)",
+    # arms: (label, order file or None)
+    arms: list[tuple[str, Path | None]] = []
+    for of in args.order or []:
+        path = Path(of).resolve()
+        if not path.is_file():
+            sys.exit(f"jfrsort: order file {path} not found")
+        arms.append((path.stem, path))
+    if args.random:
+        classes = class_list(out, manifest, args.jfr_bin)
+        if classes is None:
+            print("[jfrsort] no default-order run yet; collecting one to learn the class list",
                   flush=True)
-    print(f"[jfrsort] collected into {out} — next: jfrsort.py sort --out {out}")
+            do_runs(project, out, manifest, [("default", None)], 1, args, agent_jar, maven_args)
+            classes = class_list(out, manifest, args.jfr_bin)
+        seed = args.seed if args.seed is not None else random.SystemRandom().randrange(2**31)
+        rng = random.Random(seed)
+        existing = [int(r["arm"][7:]) for r in manifest["runs"]
+                    if r["arm"].startswith("random-") and r["arm"][7:].isdigit()]
+        k0 = max(existing, default=0) + 1
+        (out / "orders").mkdir(exist_ok=True)
+        for k in range(k0, k0 + args.random):
+            order = list(classes)
+            rng.shuffle(order)
+            path = out / "orders" / f"random-{k}.txt"
+            path.write_text("\n".join(order) + "\n")
+            arms.append((f"random-{k}", path))
+        print(f"[jfrsort] {args.random} random order(s) generated with seed {seed}", flush=True)
+    if not arms:
+        arms.append(("default", None))
+
+    args.ext = find_surefire_ext(args.surefire_ext) if any(o for _, o in arms) else None
+    do_runs(project, out, manifest, arms, args.runs, args, agent_jar, maven_args)
+    n = len(manifest["runs"])
+    print(f"[jfrsort] {out} now holds {n} run(s) — jfrsort.py sort --out {out}")
+
+
+def do_runs(project, out, manifest, arms, runs, args, agent_jar, maven_args):
+    """Rounds outside, arms inside: repeats of one arm are spread over time."""
+    for _ in range(runs):
+        for label, order in arms:
+            i = next_run_number(out, label)
+            run_dir = out / label / f"run-{i}"
+            print(f"[jfrsort] collect {label} run {i} ...", flush=True)
+            cmd = mvn_command(args.mvn, str(order) if order else None,
+                              getattr(args, "ext", None), maven_args)
+            wall = run_profiled(project, run_dir, cmd, agent_jar)
+            if order is not None:
+                shutil.copy(order, run_dir / "order.txt")
+            manifest["runs"].append({
+                "arm": label, "order": str(order) if order else None,
+                "dir": f"{label}/run-{i}", "wall_seconds": round(wall, 1),
+                "collected": datetime.now().isoformat(timespec="seconds")})
+            save_manifest(out, manifest)       # progress survives interruption
+            n = len(list((run_dir / "jfr").glob("*.jfr")))
+            print(f"[jfrsort] collect {label} run {i}: {wall:.0f}s, {n} recording(s)", flush=True)
 
 
 # ------------------------------------------------------------------- sort ---
@@ -248,28 +330,31 @@ def cmd_sort(args):
     if not manifest_path.is_file():
         sys.exit(f"jfrsort: {manifest_path} not found — run `jfrsort.py collect` first")
     manifest = json.loads(manifest_path.read_text())
+    if not manifest["runs"]:
+        sys.exit("jfrsort: nothing collected yet")
 
     runs = []
     tests_initial = None
-    for arm in manifest["arms"]:
-        for i in range(1, manifest["runs"] + 1):
-            run_dir = out / arm["label"] / f"run-{i}"
-            if not (run_dir / "jfr").is_dir():
-                sys.exit(f"jfrsort: {run_dir}/jfr missing — collect did not finish")
-            data = collect_run(args.jfr_bin, run_dir / "jfr", metric)
-            (run_dir / "metrics.json").write_text(json.dumps(data, indent=1))
-            runs.append(data)
-            if tests_initial is None:
-                tests_initial = data["order"]    # first arm, run 1
-            elif set(data["order"]) != set(tests_initial):
-                print(f"[jfrsort] WARNING: {arm['label']} run {i} test set differs; "
-                      "using the union", file=sys.stderr)
-                tests_initial += [t for t in data["order"] if t not in tests_initial]
-            attr = sum(data["per_class"].values())
-            total = attr + data["unattributed"]
-            pct = 100.0 * attr / total if total else 0.0
-            print(f"[jfrsort] {arm['label']} run {i}: {len(data['order'])} classes, "
-                  f"{pct:.1f}% of {args.metric} weight attributed", flush=True)
+    # the initial order comes from the earliest default-order run, else the earliest run
+    records = sorted(manifest["runs"], key=lambda r: (r["order"] is not None, r["collected"]))
+    for rec in records:
+        run_dir = out / rec["dir"]
+        if not (run_dir / "jfr").is_dir():
+            sys.exit(f"jfrsort: {run_dir}/jfr missing")
+        data = collect_run(args.jfr_bin, run_dir / "jfr", metric)
+        (run_dir / "metrics.json").write_text(json.dumps(data, indent=1))
+        runs.append(data)
+        if tests_initial is None:
+            tests_initial = data["order"]
+        elif set(data["order"]) != set(tests_initial):
+            print(f"[jfrsort] WARNING: {rec['dir']} test set differs; using the union",
+                  file=sys.stderr)
+            tests_initial += [t for t in data["order"] if t not in tests_initial]
+        attr = sum(data["per_class"].values())
+        total = attr + data["unattributed"]
+        pct = 100.0 * attr / total if total else 0.0
+        print(f"[jfrsort] {rec['dir']}: {len(data['order'])} classes, "
+              f"{pct:.1f}% of {args.metric} weight attributed", flush=True)
 
     # average over all runs; a class with no samples in a run counts 0 for that run
     mean = {t: sum(r["per_class"].get(t, 0.0) for r in runs) / len(runs)
@@ -292,7 +377,7 @@ def cmd_sort(args):
     for t in order:
         print(f"  {mean[t]/1e6:12.1f} MB  {t}")
     print(f"\n[jfrsort] order written to {order_file}")
-    print(f"[jfrsort] per-run metrics in {out}/*/run-*/metrics.json, table in {out}/metrics.csv")
+    print(f"[jfrsort] per-run metrics in {out}/<arm>/run-*/metrics.json, table in {out}/metrics.csv")
 
 
 def main():
@@ -303,11 +388,19 @@ def main():
     c.add_argument("--project", required=True, type=Path,
                    help="Maven project/module directory to run the suite in")
     c.add_argument("--runs", type=int, default=3,
-                   help="profiled runs per order (default 3)")
+                   help="repeats per order (default 3)")
     c.add_argument("--order", action="append", metavar="FILE",
                    help="test-order file (one class per line); repeatable. Needs the "
-                        "surefire testorder fork's extension in Maven's lib/ext")
+                        "surefire testorder fork installed in ~/.m2")
+    c.add_argument("--random", type=int, metavar="K",
+                   help="generate K shuffled orders from the class list and run each --runs times")
+    c.add_argument("--seed", type=int, help="seed for --random (default: random, printed)")
+    c.add_argument("--clean", action="store_true",
+                   help="delete the output directory's collected runs first")
+    c.add_argument("--surefire-ext", help="path to the fork's extension jar "
+                                          "(default: newest under ~/.m2)")
     c.add_argument("--out", type=Path, default=Path(".jfrsort"))
+    c.add_argument("--jfr-bin", default="jfr")
     c.add_argument("--mvn", default="mvn")
     c.add_argument("--maven-args", default="",
                    help="extra arguments appended to the mvn command line")

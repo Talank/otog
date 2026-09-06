@@ -196,13 +196,37 @@ recordings again, with a different metric, without new runs.
 ## D29 — Test orders
 
 `collect --order FILE` runs the suite with `mvn test -Dsurefire.runOrder=testorder
--Dtest=FILE`, the form in the README of the surefire testorder fork, with its
-extension in the Maven installation's `lib/ext`. Each order file gets its own arm
-under the output directory, and the rounds go outside the arms, thus the repeats of
-one arm are spread over time.
+-Dtest=FILE`, the form in the README of the surefire testorder fork, and loads the
+fork's extension for that invocation only (`-Dmaven.ext.class.path`). An extension in
+the Maven installation's `lib/ext` makes every plain `mvn test` use the fork, and the
+fork fails without `-Dtest`. Each order file gets its own arm under the output
+directory, and the rounds go outside the arms, thus the repeats of one arm are spread
+over time.
 
 ## D30 — Sort input
 
 `sort` reads only the recordings. The test list and the initial order come from the
 window events of the first arm's run 1, the mean goes over all collected runs, and we
 do not read the Surefire reports any more.
+
+## D31 — Append-only collection
+
+Each `collect` invocation adds runs to the output directory and never removes earlier
+runs: run numbers continue, and `collect.json` records each run when it completes.
+Thus an outer script can call `collect` many times, an interrupted collection keeps
+its finished runs, and `sort` uses all runs present. `--clean` deletes the directory
+first. One directory holds one project; `collect` refuses a different project.
+
+## D32 — Random orders
+
+`collect --random K` makes K shuffled orders from the class list of the earliest
+default-order run (collected first if none exists), with `random.Random(seed)`; the
+seed is printed and can be given with `--seed`. The orders are stored under `orders/`
+and each is copied into its run directory, thus every run stays reproducible. Random
+orders decorrelate a class from its position, which a repeated fixed order cannot.
+
+## D33 — Initial order for the sort
+
+`sort` takes the initial order from the earliest default-order run in the directory,
+and only if there is none from the earliest run. The initial order must be the
+project's own order, because the sort keeps that order for classes with equal values.
