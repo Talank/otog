@@ -219,14 +219,16 @@ first. One directory holds one project; `collect` refuses a different project.
 
 ## D32 — Random orders
 
-`collect --random K` makes K shuffled orders from the class list of the earliest
-default-order run (collected first if none exists), with `random.Random(seed)`; the
+`collect --random K` makes K shuffled orders from the class list of the earliest run
+in the directory (one default-order run is collected first if none exists, because
+the tool has no class scanner), with `random.Random(seed)`; the
 seed is printed and can be given with `--seed`. The orders are stored under `orders/`
 and each is copied into its run directory, thus every run stays reproducible. Random
 orders decorrelate a class from its position, which a repeated fixed order cannot.
 
 ## D33 — Initial order for the sort
 
-`sort` takes the initial order from the earliest default-order run in the directory,
-and only if there is none from the earliest run. The initial order must be the
-project's own order, because the sort keeps that order for classes with equal values.
+`sort` takes the initial order from the earliest run in the directory, whatever its
+order. The sort keeps the initial order for classes with equal values only, and
+those are the classes with no samples, thus the source of the initial order is not
+important.

@@ -49,18 +49,15 @@ python3 jfrsort.py sort --out $OUT
 and runs each of them as with `--order`. It saves each order as
 `<out>/orders/random-<k>.txt` and also copies it to `<out>/random-<k>/run-<i>/order.txt`.
 
-## When a default-order run is necessary
+## The first run
 
-A default-order run is a run without `--order` or `--random`. It has two uses:
+jfrsort has no class scanner. It reads the class list from the recording of a run,
+thus the output directory must have at least one run before `--random` can make an
+order. If the directory is empty, `collect --random` does one run in the default order
+first. Any run gives the class list; the order of that run is not important.
 
-- `--random` reads the class list from the earliest default-order run in the directory.
-  If there is none, `collect` does one default-order run first.
-- `sort` takes the initial order from the earliest default-order run. The sort is stable,
-  thus classes with equal values keep the initial order. If the directory has no
-  default-order run, `sort` uses the order of the earliest run instead.
-
-Thus, if you only give `--order` files, no default-order run is necessary, but we
-recommend one default-order run first so that the initial order is the project's own.
+`sort` uses the order of the earliest run as the initial order. The sort is stable,
+thus classes with equal values keep the initial order.
 
 ## Options of `collect`
 
@@ -70,7 +67,7 @@ recommend one default-order run first so that the initial order is the project's
 | `--out DIR` | The output directory. Default: `.jfrsort`. |
 | `--runs N` | The number of repeats of each order. Default: 3. |
 | `--order FILE` | A test order to run: one fully qualified test class on each line. You can give this option more than one time. |
-| `--random K` | A macro: `collect` makes K random orders from the class list, saves them as `<out>/orders/random-<k>.txt`, and runs each of them `--runs` times, as if you gave K `--order` files. If the directory has no default-order run, `collect` does one first to get the class list. |
+| `--random K` | A macro: `collect` makes K random orders from the class list, saves them as `<out>/orders/random-<k>.txt`, and runs each of them `--runs` times, as if you gave K `--order` files. The class list comes from an existing run; if the directory has no run, `collect` does one default-order run first. |
 | `--seed S` | The seed for `--random`. Default: a random seed, which `collect` prints. |
 | `--clean` | Delete the output directory before you collect. |
 | `--mvn BIN` | The Maven binary. Default: `mvn`. |

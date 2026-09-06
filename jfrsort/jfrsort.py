@@ -16,8 +16,8 @@ outer script can call it repeatedly and `sort` aggregates everything collected
 so far; --clean wipes the directory first. --order FILE (repeatable) runs the
 given order — one test class per line — through the surefire testorder fork
 (installed in ~/.m2; its extension is loaded per invocation); --random K
-generates K shuffled orders from the project's class list and runs them the
-same way. --runs is the number of repeats per order.
+generates K shuffled orders from the class list of an existing run and runs
+them the same way. --runs is the number of repeats per order.
 
 `sort` parses the collected recordings: each JFR event is attributed to the
 test class whose time window contains it, on any thread; the per-class metric
@@ -162,11 +162,10 @@ def next_run_number(out: Path, label: str) -> int:
 
 
 def class_list(out: Path, manifest: dict, jfr_bin: str) -> list[str] | None:
-    """Test classes in execution order from the earliest default-order run."""
+    """Test classes from the earliest collected run (any order); None if no run yet."""
     for rec in manifest["runs"]:
-        if rec["order"] is None:
-            data = collect_run(jfr_bin, out / rec["dir"] / "jfr", METRICS["alloc"])
-            return data["order"]
+        data = collect_run(jfr_bin, out / rec["dir"] / "jfr", METRICS["alloc"])
+        return data["order"]
     return None
 
 
@@ -194,7 +193,7 @@ def cmd_collect(args):
     if args.random:
         classes = class_list(out, manifest, args.jfr_bin)
         if classes is None:
-            print("[jfrsort] no default-order run yet; collecting one to learn the class list",
+            print("[jfrsort] no run yet; collecting one default-order run to learn the class list",
                   flush=True)
             do_runs(project, out, manifest, [("default", None)], 1, args, agent_jar, maven_args)
             classes = class_list(out, manifest, args.jfr_bin)
@@ -335,9 +334,7 @@ def cmd_sort(args):
 
     runs = []
     tests_initial = None
-    # the initial order comes from the earliest default-order run, else the earliest run
-    records = sorted(manifest["runs"], key=lambda r: (r["order"] is not None, r["collected"]))
-    for rec in records:
+    for rec in manifest["runs"]:                 # the earliest run gives the initial order
         run_dir = out / rec["dir"]
         if not (run_dir / "jfr").is_dir():
             sys.exit(f"jfrsort: {run_dir}/jfr missing")
