@@ -45,8 +45,22 @@ done
 python3 jfrsort.py sort --out $OUT
 ```
 
-`--random K` is a macro for this workflow: `collect` makes the K random orders itself,
-stores them under `orders/`, and runs each of them as with `--order`.
+`--random K` is a macro for this workflow: `collect` makes the K random orders itself
+and runs each of them as with `--order`. It saves each order as
+`<out>/orders/random-<k>.txt` and also copies it to `<out>/random-<k>/run-<i>/order.txt`.
+
+## When a default-order run is necessary
+
+A default-order run is a run without `--order` or `--random`. It has two uses:
+
+- `--random` reads the class list from the earliest default-order run in the directory.
+  If there is none, `collect` does one default-order run first.
+- `sort` takes the initial order from the earliest default-order run. The sort is stable,
+  thus classes with equal values keep the initial order. If the directory has no
+  default-order run, `sort` uses the order of the earliest run instead.
+
+Thus, if you only give `--order` files, no default-order run is necessary, but we
+recommend one default-order run first so that the initial order is the project's own.
 
 ## Options of `collect`
 
@@ -56,7 +70,7 @@ stores them under `orders/`, and runs each of them as with `--order`.
 | `--out DIR` | The output directory. Default: `.jfrsort`. |
 | `--runs N` | The number of repeats of each order. Default: 3. |
 | `--order FILE` | A test order to run: one fully qualified test class on each line. You can give this option more than one time. |
-| `--random K` | A macro: `collect` makes K random orders from the class list, stores them under `orders/`, and runs each of them `--runs` times, as if you gave K `--order` files. If the directory has no default-order run, `collect` does one first to get the class list. |
+| `--random K` | A macro: `collect` makes K random orders from the class list, saves them as `<out>/orders/random-<k>.txt`, and runs each of them `--runs` times, as if you gave K `--order` files. If the directory has no default-order run, `collect` does one first to get the class list. |
 | `--seed S` | The seed for `--random`. Default: a random seed, which `collect` prints. |
 | `--clean` | Delete the output directory before you collect. |
 | `--mvn BIN` | The Maven binary. Default: `mvn`. |
@@ -94,7 +108,7 @@ stores them under `orders/`, and runs each of them as with `--order`.
 | `<arm>/run-<i>/mvn.log` | The Maven log of one run. |
 | `<arm>/run-<i>/order.txt` | The test order of one run, if the run had an order. |
 | `<arm>/run-<i>/metrics.json` | The per-class values of one run. `sort` writes this file. |
-| `orders/random-<k>.txt` | The orders that `--random` made. |
+| `orders/random-<k>.txt` | The random orders that `--random` made (one class on each line). |
 | `order-alloc-sort.txt` | The sorted list of test classes, one on each line. |
 | `metrics.csv` | The mean value of each test class and the number of runs with samples. |
 
