@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A Maven Central MIRROR, and nothing else.
+
+  NOT WIRED IN BY DEFAULT. To use it, append to MVN_OPTS in config_default.sh:
+
+      -s /otog/aux/settings.xml
+
+  ($tool_dir is already bind mounted at /otog read only, so no change to
+  run_once.sh is needed. The local repository is deliberately NOT set here:
+  container/entrypoint.sh passes -Dmaven.repo.local explicitly and that has to
+  keep winning.)
+
+  WHY IT EXISTS. Compute nodes intermittently get "429 Too Many Requests" from
+  repo.maven.apache.org for every artifact in a build (zero successful
+  downloads, dead on the first request) while the same fetch from the login
+  node returns 200. Old versions of a module need artifacts that are not in
+  the 1.3 GB seeded repository, so they cannot ride it out on cache; the build
+  fails, with a status indistinguishable from a broken commit.
+
+  WHAT TO WEIGH BEFORE TURNING IT ON. The GCS bucket is a byte for byte mirror
+  of Central, so which artifacts resolve does not change. But maven does NOT
+  fall back from a mirror to the repository it mirrors: if the mirror is
+  missing something, or is down, the build fails rather than quietly going to
+  Central. That is why this is opt in rather than the default.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <mirrors>
+    <mirror>
+      <id>gcs-maven-central</id>
+      <name>Google Cloud Storage mirror of Maven Central</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+      <!--
+        Two ids, not one.
+
+        central        the id maven itself uses by default. Every other module
+                       in the campaign resolves entirely through this: 2088 and
+                       29 log 100 percent of their downloads against the mirror.
+
+        maven-central  spring-ai declares its OWN repository under this id,
+                       pointing straight at repo.maven.apache.org. A mirror is
+                       matched by repository id, so that one slipped past and
+                       took the full force of the rate limiting: module 1778
+                       logged 44 requests to maven-central with zero successes
+                       while 451 artifacts resolved fine from the mirror, and
+                       its builds went from 12 minutes to over 80 with no
+                       completions at all. All 8 sampled artifacts it was being
+                       refused answer 200 from the GCS bucket.
+
+        spring-milestones is deliberately absent. It serves Spring milestone
+        artifacts that never reach Central, it answers 200 from the compute
+        nodes, and since maven will not fall back from a mirror, redirecting it
+        would turn a working repository into a wall of 404s.
+      -->
+      <mirrorOf>central,maven-central</mirrorOf>
+    </mirror>
+  </mirrors>
+</settings>

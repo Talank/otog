@@ -1,0 +1,8 @@
+runs/
+workspaces/
+images/
+dependency/
+work_list.txt
+config.sh
+orders/
+.pytest_cache/

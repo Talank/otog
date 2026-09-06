@@ -1,0 +1,14 @@
+strategy,description
+curator_shade_keep_guava_base,Stop curator-client shading away the guava classes its own shaded code calls
+remove_snapshots,Strip -SNAPSHOT from every pom so purged snapshot artifacts resolve to the release they became
+insecure_ssl,Accept untrusted TLS when a repository's certificate chain no longer validates
+private_develocity_cache,Give the build its own develocity cache dir so parallel containers cannot collide
+drop_build_extensions,Delete .mvn/extensions.xml so maven does not resolve a build-scan extension it does not need
+tolerate_build_failure,Accept a run whose build never reports BUILD SUCCESS but still produces usable surefire XML
+native_build_toolchain,Install the C toolchain (make, gcc, autotools) the maven image lacks, for a reactor that compiles a native library
+skip_spring_javaformat,Skip the spring-javaformat validate goal, a style linter unrelated to whether the code compiles or tests run
+curator_mockito_test_dependency,Declare the mockito-core test dependency the module's own test sources import but its pom omits
+curator_shared_value_watcher_types,Apply upstream's own next-commit fix for SharedValue's @VisibleForTesting ctor taking the wrong client type
+curator_listener_manager_ctor_access,Relax StandardListenerManager's constructor from private to package-private for one commit where CURATOR-505 made it private before updating its one same-package caller
+skip_japicmp,Skip the japicmp binary/source API-compatibility gate, a release-process check unrelated to whether the code compiles or tests run
+force_test_heap,Rewrite the -Xmx inside a pom argLine so the surefire fork gets the container heap instead of a project default too small for the suite
