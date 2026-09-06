@@ -18,7 +18,11 @@ write_status() {
     local run_status=$2
 
     mkdir -p "$out_dir"
+    # The status first -- readers take line 1 -- then which version of the tool
+    # produced it. A run whose code cannot be identified cannot be reproduced.
     echo "$run_status" > "$out_dir/status"
+    [ -n "${OTOG_TOOL_SHA:-}" ] && echo "$OTOG_TOOL_SHA" >> "$out_dir/status"
+    return 0
 }
 
 read_status() {

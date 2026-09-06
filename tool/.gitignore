@@ -5,4 +5,5 @@ dependency/
 work_list.txt
 config.sh
 orders/
+orders.zip
 .pytest_cache/

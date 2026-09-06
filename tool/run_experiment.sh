@@ -4,17 +4,19 @@
 #
 # Runs the experiment: every order, of every version, of every module listed
 # below, in priority order, several containers at a time. Edit the variables to
-# run a subset. Resumable: a repetition that already passed is skipped.
+# run a subset, or set any of them in the environment for a one-off.
+# Resumable: a repetition that already passed is skipped.
 #
-# in : the variables below
+# in : the variables below. JFR=true adds a profiled run beside every plain one.
 # out: runs/<module>/<version>/order_<order>/run_<n>/status
+#      runs/<module>/<version>/order_<order>/jfr_run_<n>/jfr/<module>.jfr
 
-MODULES="1685 1683 1778 1305 2088 29 33 1122 20 1497 3323 1694 3320 1216 3613 1117"
-PHASES="v0 historical x10 x5"   # priority order, first to last
-ORDERS="1 100"                  # first and last order number
-REPEATS=3
-PARALLEL=auto                   # auto = as many as CPUs and memory allow
-JFR=false
+MODULES="${MODULES:-1685 1683 1778 1305 2088 29 33 1122 20 1497 3323 1694 3320 1216 3613 1117}"
+PHASES="${PHASES:-v0 historical x10 x5}"   # priority order, first to last
+ORDERS="${ORDERS:-1 100}"                  # first and last order number
+REPEATS=${REPEATS:-3}
+PARALLEL=${PARALLEL:-auto}                 # auto = as many as CPUs and memory allow
+JFR=${JFR:-false}
 
 set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -58,10 +60,28 @@ build_work_list() {
     done
 }
 
+run_repetition() {
+    # One container, one cold JVM, one measurement. Profiled or not, it is the
+    # same run in its own directory: JFR's ~8% cannot be averaged with a plain
+    # timing, and the separate directory is also the separate resume state.
+    local module=$1 version=$2 order=$3 n=$4 jfr=$5
+    local slug=$6 path=$7 sha=$8 file=$9
+    local prefix=run out
+
+    [ "$jfr" = true ] && prefix=jfr_run
+    out="$otog_runs_dir/$module/$version/order_$order/${prefix}_$n"
+
+    run_passed "$out" && return 0
+    IMAGE=$(image_for_version "$module" "$version") \
+        bash "$tool_dir/run_once.sh" "$slug" "$path" "$sha" "$out" "$file" "$jfr"
+}
+
 run_one_order() {
-    # Every repetition of one order, each its own container and cold JVM.
+    # Every repetition of one order. With JFR on, each repetition is run twice
+    # -- once plain, once profiled -- so the cost of profiling is measured
+    # against a timing from the same order rather than an earlier campaign.
     local module=$1 version=$2 order=$3
-    local row slug path sha file out n
+    local row slug path sha file n
 
     row=$(version_row "$module" "$version") || return 0
     [ -z "$row" ] && { fail "no row for module $module version $version"; return 0; }
@@ -71,11 +91,11 @@ run_one_order() {
     [ -s "$file" ] || return 0
 
     for n in $(seq 1 "$REPEATS"); do
-        out="$otog_runs_dir/$module/$version/order_$order/run_$n"
-        run_passed "$out" && continue
-        IMAGE=$(image_for_version "$module" "$version") \
-            bash "$tool_dir/run_once.sh" "$slug" "$path" "$sha" "$out" "$file" "$JFR"
+        run_repetition "$module" "$version" "$order" "$n" false "$slug" "$path" "$sha" "$file"
+        [ "$JFR" = true ] &&
+            run_repetition "$module" "$version" "$order" "$n" true "$slug" "$path" "$sha" "$file"
     done
+    return 0
 }
 
 
@@ -88,7 +108,8 @@ if [ "$1" = --one ]; then
 fi
 
 [ "$PARALLEL" = auto ] && PARALLEL=$(parallel_slots)
-say "modules: $(echo $MODULES | wc -w)   phases: $PHASES   parallel: $PARALLEL   repeats: $REPEATS"
+# jfr is worth saying out loud: it doubles the containers a campaign runs.
+say "modules: $(echo $MODULES | wc -w)   phases: $PHASES   parallel: $PARALLEL   repeats: $REPEATS   jfr: $JFR"
 
 build_work_list > "$tool_dir/work_list.txt"
 say "work list: $(wc -l < "$tool_dir/work_list.txt") orders -> work_list.txt"

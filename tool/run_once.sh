@@ -31,6 +31,7 @@ workspace="$otog_workspace_root/${slug//\//_}_${module//\//_}_${sha:0:12}"
 
 check_inputs() {
     require_engine || return 1
+    check_container_size || return 1
 
     if [ -n "$order" ] && [ ! -s "$order" ]; then
         fail "no order at $order"
@@ -77,6 +78,7 @@ run_container() {
         --image "$image" \
         --cpuset "$(cpu_slice)" --memory "$otog_memory" \
         --env "SLUG=$slug" --env "MODULE=$module" --env "SHA=$sha" \
+        --env "OTOG_TOOL_SHA=$(tool_sha)" \
         --bind "$tool_dir:/otog:ro" \
         --bind "$workspace:$container_work_dir" \
         --bind "$workspace/m2:$container_m2_dir" \

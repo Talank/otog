@@ -37,6 +37,11 @@ MVN_EXTRA_OPTS="${OTOG_MVN_EXTRA_OPTS:-}"
 # per-workspace home and every job would re-download.
 MVN_OPTS="$MVN_OPTS $maven_shared_repo_opts -Dmaven.repo.local=$container_m2_dir"
 
+# Reaches every JVM the build starts, surefire's fork included. Not -DargLine:
+# jacoco's prepare-agent rewrites that property mid-build and the flag is
+# silently lost. No -Xmx here -- the JVM picks its own heap from this.
+export JAVA_TOOL_OPTIONS="-XX:MaxRAM=$otog_jvm_max_ram"
+
 
 # METHODS
 
@@ -195,7 +200,7 @@ run_the_order() {
     # Surefire writes its XMLs straight into the bind-mounted /out, so nothing
     # has to be moved after the run and nothing can be half moved.
     local reports_dir="$out_dir/surefire-reports"
-    local start_time end_time
+    local start_time end_time maven_pid
 
     rm -rf "$reports_dir"
     mkdir -p "$reports_dir"
@@ -208,20 +213,24 @@ run_the_order() {
     # impose, the forked surefire NPEs on a plain `mvn test`, which is why the
     # compile above runs vanilla.
     JFR_MVN_FLAGS=()
-    jfr_before_mvn
+    jfr_before_mvn "$out_dir"
 
+    # Backgrounded only so its pid is knowable: the mvn script execs the JVM,
+    # so $! is maven's own JVM, the one recording JFR must throw away.
     start_time=$(date +%s.%N)
     mvn -B -Dmaven.ext.class.path="$surefire_extension_jar" \
         test -pl "$module" \
         -Dtest="$order_file" \
         -Dsurefire.runOrder=testorder \
         -Dsurefire.reportsDirectory="$reports_dir" \
-        "${JFR_MVN_FLAGS[@]}" \
         $MVN_OPTS $MVN_EXTRA_OPTS \
-        > "$out_dir/mvn.log" 2>&1
+        "${JFR_MVN_FLAGS[@]}" \
+        > "$out_dir/mvn.log" 2>&1 &
+    maven_pid=$!
+    wait "$maven_pid"
     end_time=$(date +%s.%N)
 
-    jfr_after_mvn "$repo_dir" "$out_dir"
+    jfr_after_mvn "$out_dir" "$maven_pid" "$module"
 
     echo "$start_time $end_time" > "$out_dir/wall_time.txt"
     print_info_message "⏱️ Wall time: $(echo "$end_time $start_time" | awk '{ printf "%.1f", $1 - $2 }')s"

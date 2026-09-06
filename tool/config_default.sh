@@ -22,6 +22,11 @@ otog_jfr_settings="${OTOG_JFR_SETTINGS:-profile}"
 
 otog_root="$tool_dir"
 otog_orders_dir="$otog_root/orders"
+
+# The orders are the experiment's input: ~17 GB unpacked, far too big for git,
+# so setup.sh fetches them once. A google drive link is handled with gdown, any
+# other URL with curl.
+otog_orders_url="${OTOG_ORDERS_URL:-https://drive.google.com/file/d/1YWehYp3KAh2KubJcHE2w600N_qgicdZz/view?usp=sharing}"
 otog_runs_dir="${OTOG_RUNS_DIR:-$otog_root/runs}"
 otog_workspace_root="${OTOG_WORKSPACE_ROOT:-$otog_root/workspaces}"
 otog_dependency_dir="$otog_root/dependency"
@@ -109,6 +114,13 @@ if [ -n "$otog_jvm_heap" ]; then
     export MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }-Xmx2g"
     MVN_OPTS="$MVN_OPTS -DargLine=-Xmx$otog_jvm_heap"
 fi
+
+# The backstop for where that -DargLine never arrives: jacoco's prepare-agent
+# rewrites the argLine property mid-build, and the fork is then sized by what
+# the JVM can see -- its cgroup under docker, but the whole node under
+# apptainer, which is 64g of heap on a 256g machine. -XX:MaxRAM rather than a
+# second -Xmx, so a heap nobody configured stays the JVM's own default.
+otog_jvm_max_ram="${OTOG_JVM_MAX_RAM:-$otog_memory}"
 
 # The maven extension that makes -Dsurefire.runOrder=testorder actually
 # impose the order. Without it a run still passes -- having measured nothing.

@@ -100,7 +100,10 @@ engine_image_exists() {
     ref=$(engine_image_ref "$tag")
 
     if [ "$(engine_family)" = "docker" ]; then
-        "$(engine_kind)" image inspect "$ref" > /dev/null 2>&1
+        # images -q, not image inspect: with docker's containerd image store
+        # inspect resolves only fully qualified refs, and would report every
+        # short tag missing on a machine that can in fact run it.
+        [ -n "$("$(engine_kind)" images -q "$ref" 2> /dev/null)" ]
     else
         # -e not -d: a ref is a sandbox directory or a .sif file.
         [ -e "$ref" ]

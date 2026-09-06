@@ -10,7 +10,7 @@ random_test_order_generation_ML/
 results_error_v50
 /results_*
 /csto2/target
-/tool
+
 /docker_template/deps/
 
 /remote_results
@@ -20,3 +20,7 @@ results_error_v50
 **/.DS_Store
 /remote_results_full
 /logs
+
+.DS_Store
+probo/
+.DS_Store

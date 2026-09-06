@@ -3,11 +3,11 @@
 # bash setup.sh docker          # or: bash setup.sh apptainer
 #
 # One-time setup in this directory: checks the engine is usable, builds the
-# container images, and creates the directories a run needs. Safe to re-run --
-# an image that is already there is left alone.
+# container images, fetches the orders, and creates the directories a run
+# needs. Safe to re-run -- anything already there is left alone.
 #
-# in : docker | apptainer
-# out: images/ populated, runs/ workspaces/ dependency/ created
+# in : docker | apptainer, and otog_orders_url for the orders
+# out: images/ populated, orders/ unpacked, runs/ workspaces/ dependency/ created
 
 set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -71,9 +71,32 @@ build_images() {
     done
 }
 
+fetch_orders() {
+    # The orders are the input to every run and far too big for git, so they
+    # are fetched once and kept. The zip is kept too: unpacking again is free,
+    # downloading 2 GB again is not.
+    local zip="$tool_dir/orders.zip"
+
+    [ -n "$(ls -A "$otog_orders_dir" 2> /dev/null)" ] && { say "have   orders/"; return 0; }
+
+    if [ -z "$otog_orders_url" ]; then
+        fail "no orders URL -- set otog_orders_url in config.sh, or unpack orders.zip here yourself"
+        return 1
+    fi
+
+    if [ ! -s "$zip" ]; then
+        say "fetch  orders.zip"
+        download_file "$otog_orders_url" "$zip" || return 1
+    fi
+
+    say "unzip  orders.zip -> orders/"
+    unzip -q -o "$zip" -d "$tool_dir" || return 1
+}
+
 report() {
     say ""
     say "engine   : $(engine_kind)  (saved in config.sh)"
+    say "orders   : $(ls "$otog_orders_dir" 2> /dev/null | wc -l | tr -d ' ') modules"
     say "images   : $(for i in $images; do engine_image_exists "$i" && echo -n .; done | wc -c) of $(echo $images | wc -w)"
     say "parallel : $(parallel_slots) containers fit here ($otog_cpus CPU + $otog_memory each)"
     say ""
@@ -87,4 +110,5 @@ check_engine || exit 1
 save_engine  || die "could not write config.sh"
 make_dirs    || die "could not create directories"
 build_images || die "could not build the images"
+fetch_orders || die "could not fetch the orders"
 report

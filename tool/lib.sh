@@ -44,6 +44,53 @@ order_file() {
     esac
 }
 
+download_file() {
+    # gdown for a google drive link: a file this size gets an interstitial
+    # confirm page, which curl would happily save in place of the zip.
+    local url=$1
+    local dest=$2
+
+    case "$url" in
+        *drive.google.com*|*docs.google.com*)
+            command -v gdown > /dev/null 2>&1 || {
+                fail "gdown is needed for a google drive link: pip3 install gdown"
+                return 1
+            }
+            gdown --fuzzy -O "$dest" "$url" ;;
+        *)  curl -fL --retry 3 -o "$dest" "$url" ;;
+    esac
+}
+
+check_container_size() {
+    # The experiment's unit is otog_cpus CPUs and otog_memory of RAM, and a
+    # timing taken on a differently sized machine is not comparable with any
+    # other. Docker enforces it with cgroups; apptainer cannot without root, so
+    # there the scheduler's allocation IS the container and a wrong one has to
+    # be loud rather than silently producing unusable numbers.
+    [ "$(engine_family)" = docker ] && return 0
+    [ -z "${SLURM_JOB_ID:-}" ] && return 0
+
+    local want_cpu=$otog_cpus
+    local want_mem=${otog_memory%g}
+    local got_cpu=${SLURM_CPUS_ON_NODE:-0}
+    local got_mem=$(( ${SLURM_MEM_PER_NODE:-0} / 1024 ))
+
+    [ "$got_cpu" -ge "$want_cpu" ] && [ "$got_mem" -ge "$want_mem" ] && return 0
+    fail "allocation is ${got_cpu} CPU + ${got_mem}g, the experiment needs ${want_cpu} + ${want_mem}g"
+    fail "  ask for it: --cpus-per-task=$want_cpu --mem=${want_mem}G"
+    return 1
+}
+
+tool_sha() {
+    # Which version of the experiment code produced a run. Empty outside a
+    # checkout -- running from a tarball still has to work.
+    local sha
+    sha=$(git -C "$tool_dir" rev-parse --short=12 HEAD 2>/dev/null) || return 0
+    # A dirty tree means the sha does not identify the code that actually ran.
+    git -C "$tool_dir" diff --quiet HEAD 2>/dev/null || sha="$sha-dirty"
+    echo "$sha"
+}
+
 run_status() {
     head -1 "$1/status" 2>/dev/null || echo NONE
 }
