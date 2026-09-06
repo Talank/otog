@@ -19,6 +19,35 @@ python3 jfrsort.py sort --out ./csv
 
 Each `collect` adds runs to the output directory. `sort` uses all runs in the directory.
 
+## Example workflow with an outer script
+
+`collect` keeps all runs, thus an outer script can call it many times with its own
+orders. This script makes 100 random orders from the class list and collects one run
+of each. You can stop the script at any time; the finished runs stay in the directory.
+
+```bash
+#!/bin/sh
+PROJECT=~/Development/Research/commons-csv
+OUT=./csv
+
+# One default-order run gives the class list.
+python3 jfrsort.py collect --project $PROJECT --out $OUT --runs 1
+
+# The class list (metrics.csv has one class on each line after the header).
+python3 jfrsort.py sort --out $OUT > /dev/null
+CLASSES=$(cut -d, -f1 $OUT/metrics.csv | tail -n +2)
+
+for i in $(seq 1 100); do
+    echo "$CLASSES" | sort -R > /tmp/order-$i.txt
+    python3 jfrsort.py collect --project $PROJECT --out $OUT --runs 1 --order /tmp/order-$i.txt
+done
+
+python3 jfrsort.py sort --out $OUT
+```
+
+`--random K` is a macro for this workflow: `collect` makes the K random orders itself,
+stores them under `orders/`, and runs each of them as with `--order`.
+
 ## Options of `collect`
 
 | Option | Description |
@@ -27,7 +56,7 @@ Each `collect` adds runs to the output directory. `sort` uses all runs in the di
 | `--out DIR` | The output directory. Default: `.jfrsort`. |
 | `--runs N` | The number of repeats of each order. Default: 3. |
 | `--order FILE` | A test order to run: one fully qualified test class on each line. You can give this option more than one time. |
-| `--random K` | Make K random orders from the class list and run each of them `--runs` times. If the directory has no default-order run, `collect` does one first to get the class list. |
+| `--random K` | A macro: `collect` makes K random orders from the class list, stores them under `orders/`, and runs each of them `--runs` times, as if you gave K `--order` files. If the directory has no default-order run, `collect` does one first to get the class list. |
 | `--seed S` | The seed for `--random`. Default: a random seed, which `collect` prints. |
 | `--clean` | Delete the output directory before you collect. |
 | `--mvn BIN` | The Maven binary. Default: `mvn`. |
