@@ -212,7 +212,6 @@ run_the_order() {
     # The extension is loaded ONLY here. With it active but no -Dtest order to
     # impose, the forked surefire NPEs on a plain `mvn test`, which is why the
     # compile above runs vanilla.
-    JFR_MVN_FLAGS=()
     jfr_before_mvn "$out_dir"
 
     # Backgrounded only so its pid is knowable: the mvn script execs the JVM,
@@ -224,7 +223,6 @@ run_the_order() {
         -Dsurefire.runOrder=testorder \
         -Dsurefire.reportsDirectory="$reports_dir" \
         $MVN_OPTS $MVN_EXTRA_OPTS \
-        "${JFR_MVN_FLAGS[@]}" \
         > "$out_dir/mvn.log" 2>&1 &
     maven_pid=$!
     wait "$maven_pid"

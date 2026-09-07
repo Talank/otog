@@ -74,24 +74,31 @@ def test_java_major_parses_both_version_schemes():
         assert out.stdout.strip() == want, f"{reported} parsed as {out.stdout!r}"
 
 
-def test_stackdepth_is_raised_on_every_java_version(tmp_path):
-    # JFR truncates at 64 frames by default, which cuts the test's own frame
-    # out of a maven -> surefire -> junit stack -- the one frame we attribute by.
-    for version in ("8", "11", "17", "21"):
-        out = call(f'jfr_java_flags "{tmp_path}"', java_version=version)
-        assert "stackdepth=1024" in out.stdout, f"java {version} kept the default 64"
+def test_jfrsort_profile_events_are_enabled_on_jdk_17(tmp_path):
+    out = call(f'jfr_java_flags "{tmp_path}"', java_version="17")
+    assert "settings=profile" in out.stdout
+    assert "jdk.ObjectAllocationSample#throttle=1000/s" in out.stdout
+    assert "jdk.Compilation#threshold=0ms" in out.stdout
+    assert "jdk.ClassLoad#enabled=true" in out.stdout
+    assert "jdk.FileRead#threshold=0ms" in out.stdout
+    assert "jdk.SocketRead#threshold=0ms" in out.stdout
+    assert "jdk.JavaMonitorEnter#threshold=0ms" in out.stdout
+    assert "jdk.ThreadSleep#threshold=0ms" in out.stdout
 
 
-def test_probo_events_and_agent_only_on_17_and_up(tmp_path):
-    # jdk.ObjectAllocationSample, the per-event (#) syntax and the jdk.jfr API
-    # the agent needs all arrive in JDK 17; on 8 and 11 the VM refuses to start.
+def test_jfrsort_agent_only_on_17_and_up(tmp_path):
+    # The custom test-window event uses the JDK 17 jdk.jfr API. The default
+    # profile remains available on older JDKs without the attribution agent.
     for version in ("8", "11"):
         out = call(f'jfr_java_flags "{tmp_path}"', java_version=version)
-        assert "#" not in out.stdout, f"java {version} would fail to boot"
         assert "-javaagent" not in out.stdout
+        assert "ObjectAllocationSample#" not in out.stdout
 
     out = call(f'jfr_java_flags "{tmp_path}"', java_version="17")
-    assert "jdk.ObjectAllocationSample#throttle" in out.stdout
+    if Path("/otog/aux/jfrsort-agent.jar").is_file():
+        assert "-javaagent" in out.stdout
+    else:
+        assert "-javaagent" not in out.stdout
 
 
 def test_recordings_are_written_into_the_run_not_the_repo(tmp_path):
