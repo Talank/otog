@@ -109,6 +109,28 @@ fetch_dependency() {
     unzip -q -o "$zip" -d "$tool_dir" || return 1
 }
 
+build_jfrsort_agent() {
+    local agent_dir="$tool_dir/../jfrsort/agent"
+    local agent_jar="$agent_dir/target/jfrsort-agent.jar"
+    local aux_jar="$tool_dir/aux/jfrsort-agent.jar"
+
+    [ -d "$agent_dir" ] || {
+        fail "jfrsort agent source is missing at $agent_dir"
+        return 1
+    }
+
+    say "build  jfrsort agent"
+    mvn -q -f "$agent_dir/pom.xml" package || return 1
+    [ -s "$agent_jar" ] || {
+        fail "jfrsort agent build produced no $agent_jar"
+        return 1
+    }
+
+    mkdir -p "$(dirname "$aux_jar")" || return 1
+    cp -f "$agent_jar" "$aux_jar"
+    say "copy   jfrsort agent -> aux/"
+}
+
 report() {
     say ""
     say "engine   : $(engine_kind)  (saved in config.sh)"
@@ -128,4 +150,5 @@ make_dirs    || die "could not create directories"
 build_images || die "could not build the images"
 fetch_orders || die "could not fetch the orders"
 fetch_dependency || die "could not fetch the dependency"
+build_jfrsort_agent || die "could not build the jfrsort agent"
 report

@@ -30,17 +30,17 @@ jfr_java_major() {
 
 jfr_java_flags() {
     local jfr_dir=$1
-    local agent=""
+    local jfrsort_agent_option=""
     local events=""
 
     # Custom events and test windows require JDK 17+.
     if [ "$(jfr_java_major)" -ge 17 ]; then
         events=",$JFR_EVENTS"
-        [ -f "$jfr_agent_jar" ] && agent="-javaagent:$jfr_agent_jar "
+        [ -f "$jfr_agent_jar" ] && jfrsort_agent_option="-javaagent:$jfr_agent_jar "
     fi
 
     # Each JVM writes one file and finalizes it on exit.
-    echo "${agent}-XX:StartFlightRecording=settings=${jfr_settings_file}${events},dumponexit=true,filename=$jfr_dir/"
+    echo "${jfrsort_agent_option}-XX:StartFlightRecording=settings=${jfr_settings_file}${events},dumponexit=true,filename=$jfr_dir/"
 }
 
 jfr_drop_maven_recording() {
