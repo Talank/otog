@@ -39,8 +39,24 @@ MVN_OPTS="$MVN_OPTS $maven_shared_repo_opts -Dmaven.repo.local=$container_m2_dir
 
 # Reaches every JVM the build starts, surefire's fork included. Not -DargLine:
 # jacoco's prepare-agent rewrites that property mid-build and the flag is
-# silently lost. No -Xmx here -- the JVM picks its own heap from this.
-export JAVA_TOOL_OPTIONS="-XX:MaxRAM=$otog_jvm_max_ram"
+# silently lost. No -Xmx here, so a fork that DID receive the argLine keeps
+# exactly the heap it was given; this only sizes the ones that did not.
+#
+# MaxRAM on its own is not enough: the JVM still takes a FRACTION of it, 25% by
+# default, so a fork would get 4g of a 16g container. The flag that says "all of
+# it" was renamed in JDK 10, and the wrong one is fatal rather than ignored --
+# java 8 answers MaxRAMPercentage with "Could not create the Java Virtual
+# Machine" and the run dies before maven starts. Measured, both ways: 4.00g with
+# MaxRAM alone, 16.00g with the matching share flag, on 8 and on 17.
+if [ -n "$otog_jvm_max_ram" ]; then
+    java_major=$(java -version 2>&1 | sed -n '/version "/{s/.*version "//;s/^1\.//;s/[^0-9].*//;p;q;}')
+    if [ "${java_major:-8}" -ge 10 ] 2> /dev/null; then
+        heap_share=-XX:MaxRAMPercentage=100
+    else
+        heap_share=-XX:MaxRAMFraction=1
+    fi
+    export JAVA_TOOL_OPTIONS="-XX:MaxRAM=$otog_jvm_max_ram $heap_share"
+fi
 
 
 # METHODS
@@ -78,9 +94,9 @@ seed_local_repo() {
 
     # The one artifact whose absence would not show up until an order run
     # failed: the surefire fork that -Dmaven.ext.class.path forces on every build.
-    if [ ! -d "$container_m2_dir/org/apache/maven/plugins/maven-surefire-plugin/3.0.0-M8-SNAPSHOT" ]; then
-        print_fail_message "❌ Seeded repo has no maven-surefire-plugin:3.0.0-M8-SNAPSHOT"
-        print_fail_message "   Run setup_surefire_fork.sh on the login node, then retry"
+    if [ ! -d "$container_m2_dir/org/apache/maven/plugins/maven-surefire-plugin/$surefire_fork_version" ]; then
+        print_fail_message "❌ Seeded repo has no maven-surefire-plugin:$surefire_fork_version"
+        print_fail_message "   Run setup.sh on the login node, then retry"
         return 1
     fi
 

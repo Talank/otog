@@ -8,3 +8,4 @@ orders/
 orders.zip
 .pytest_cache/
 dependency.zip
+.build/

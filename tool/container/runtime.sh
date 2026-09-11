@@ -26,10 +26,13 @@ write_status() {
 }
 
 read_status() {
+    # head -1, not cat: write_status appends the tool sha as line 2, and every
+    # caller compares this against PASS. Returning both lines makes a run that
+    # passed look unfinished, and the campaign redoes work it already has.
     local out_dir=$1
 
     if [ -f "$out_dir/status" ]; then
-        cat "$out_dir/status"
+        head -1 "$out_dir/status"
     else
         echo "NOT_RUN"
     fi

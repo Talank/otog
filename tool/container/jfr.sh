@@ -81,6 +81,22 @@ jfr_before_mvn() {
     jfr_enabled || return 0
     local jfr_dir=$1/jfr
 
+    # An absolute timestamp on every maven line, in UTC. Surefire prints
+    # "Running <class>" when a class starts and "Tests run: ... - in <class>"
+    # when it ends; with timestamps those pairs become exact class windows on
+    # the same clock JFR stamps its events with, which is what makes an event
+    # attributable to the test class that caused it.
+    #
+    # The jfrsort agent supplies the same windows more precisely, but only on
+    # JDK 17+, and NINE of the sixteen modules build on java 8. Without this
+    # their recordings have no class attribution at all -- and nothing else can
+    # supply it: the surefire XMLs are all flushed in the same moment at the end
+    # of a run, jdk.ClassLoad never fires for the test classes themselves, and
+    # jdk.ExecutionSample names a suite class in about 15% of its samples.
+    export TZ=UTC
+    MVN_OPTS="$MVN_OPTS -Dorg.slf4j.simpleLogger.showDateTime=true"
+    MVN_OPTS="$MVN_OPTS -Dorg.slf4j.simpleLogger.dateTimeFormat=yyyy-MM-dd'T'HH:mm:ss.SSS"
+
     # Start clean.
     rm -rf "$jfr_dir"
     mkdir -p "$jfr_dir"

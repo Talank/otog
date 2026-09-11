@@ -7,7 +7,8 @@
 # run a subset, or set any of them in the environment for a one-off.
 # Resumable: a repetition that already passed is skipped.
 #
-# in : the variables below. JFR=true adds a profiled run beside every plain one.
+# in : the variables below. JFR=true adds a profiled run beside every plain
+#      one, but only on the v0 and historical phases (jfr_eligible).
 # out: runs/<module>/<version>/order_<order>/run_<n>/status
 #      runs/<module>/<version>/order_<order>/jfr_run_<n>/jfr/<module>.jfr
 
@@ -34,18 +35,26 @@ versions_in() {
     esac
 }
 
+jfr_eligible() {
+    # JFR only runs on v0 and historical -- the versions the campaign actually
+    # analyzes test-order effects on. The future x10/x5 versions exist to
+    # confirm an order still applies going forward, not to profile it again.
+    [ "$1" = v0 ] || [ "$1" = historical ]
+}
+
 work_for() {
-    # One "<module> <version> <order>" per line. At a historical version only
-    # its own order runs: order n is the one assigned to version -n.
+    # One "<module> <version> <order> <phase>" per line. At a historical
+    # version only its own order runs: order n is the one assigned to
+    # version -n. The phase rides along so a consumer can gate JFR on it.
     local module=$1 phase=$2 version order
     local first=${ORDERS%% *} last=${ORDERS##* }
 
     for version in $(versions_in "$phase"); do
         if [ "$phase" = historical ]; then
-            echo "$module $version ${version#-}"
+            echo "$module $version ${version#-} $phase"
         else
             for order in $(seq "$first" "$last"); do
-                echo "$module $version $order"
+                echo "$module $version $order $phase"
             done
         fi
     done
@@ -77,11 +86,12 @@ run_repetition() {
 }
 
 run_one_order() {
-    # Every repetition of one order. With JFR on, each repetition is run twice
-    # -- once plain, once profiled -- so the cost of profiling is measured
-    # against a timing from the same order rather than an earlier campaign.
-    local module=$1 version=$2 order=$3
-    local row slug path sha file n
+    # Every repetition of one order. With JFR on and this phase eligible, each
+    # repetition is run twice -- once plain, once profiled -- so the cost of
+    # profiling is measured against a timing from the same order rather than
+    # an earlier campaign.
+    local module=$1 version=$2 order=$3 phase=$4
+    local row slug path sha file n jfr_here=false
 
     row=$(version_row "$module" "$version") || return 0
     [ -z "$row" ] && { fail "no row for module $module version $version"; return 0; }
@@ -90,9 +100,11 @@ run_one_order() {
     file=$(order_file "$module" "$version" "$order")
     [ -s "$file" ] || return 0
 
+    [ "$JFR" = true ] && jfr_eligible "$phase" && jfr_here=true
+
     for n in $(seq 1 "$REPEATS"); do
         run_repetition "$module" "$version" "$order" "$n" false "$slug" "$path" "$sha" "$file"
-        [ "$JFR" = true ] &&
+        [ "$jfr_here" = true ] &&
             run_repetition "$module" "$version" "$order" "$n" true "$slug" "$path" "$sha" "$file"
     done
     return 0
@@ -100,6 +112,13 @@ run_one_order() {
 
 
 # LOGIC
+
+# The work list alone, for a scheduler that submits it as jobs rather than
+# running it here. Keeps the priority order defined in exactly one place.
+if [ "$1" = --list ]; then
+    build_work_list
+    exit 0
+fi
 
 if [ "$1" = --one ]; then
     shift

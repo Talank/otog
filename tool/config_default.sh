@@ -82,29 +82,102 @@ image_java11=maven:3.9-eclipse-temurin-11
 image_java17=maven:3.9-eclipse-temurin-17
 image_java21=maven:3.9-eclipse-temurin-21
 
+# The same images with a C toolchain baked in, for netty's native reactor.
+# Baked in, and not installed by the native_build_toolchain fix at run time,
+# because that fix needs root and a writable /usr: true under docker, false
+# under apptainer, where the container runs as the calling user on a read-only
+# image. Without these, all three netty modules fail to build on apptainer.
+image_java8_native=otog/maven-3.9-eclipse-temurin-8-native
+image_java11_native=otog/maven-3.9-eclipse-temurin-11-native
+
+# What those two add. One list, so the two images cannot drift apart.
+native_packages="build-essential autoconf automake libtool pkg-config"
+
+native_source_image() {
+    # The stock image a native tag is built from; empty if the tag is not one.
+    case "$1" in
+        "$image_java8_native")  echo "$image_java8"  ;;
+        "$image_java11_native") echo "$image_java11" ;;
+    esac
+}
+
 image_for_project() {
     case "$1" in
         spring-projects/spring-ai|flowable/flowable-engine|mapstruct/mapstruct) echo "$image_java17" ;;
         liquibase/liquibase|apache/incubator-kie-drools|apache/iotdb)           echo "$image_java17" ;;
+        netty/netty)                                                            echo "$image_java8_native" ;;
         *)                                                                      echo "$image_java8"  ;;
     esac
 }
 
-# A few versions need a different JDK than the rest of their project.
+# A few versions need a different JDK than the rest of their project. Numeric
+# tests, not globs on "$1:$2": a glob has to spell out every version it covers,
+# and the ones it silently missed (1216 v87-v89, 1305 v19) are versions whose
+# test sources do not compile on the project's usual JDK. With -fn the reactor
+# carries on regardless, so the build is called OK and the test list comes back
+# EMPTY -- a wrong answer rather than a failure.
 image_for_version() {
-    case "$1:$2" in
-        1216:9[0-9]|1216:100) echo "$image_java21" ;;
-        1305:[2-9][0-9]|1305:100) echo "$image_java11" ;;
+    local module_id=$1
+    local version=$2
+
+    case "$module_id" in
+        1305)
+            # async-http-client client: java 11 from v19 onward.
+            [ "$version" -ge 19 ] 2> /dev/null && echo "$image_java11" ;;
+        1685)
+            # javaparser-core-testing: java 11 at exactly v-18 and v-17.
+            case "$version" in -18 | -17) echo "$image_java11" ;; esac ;;
+        1216)
+            # mapstruct added jdk21/ test sources in 2c84d04463a3 (2025-05-11),
+            # which use SequencedCollection. v87 is the first version descended
+            # from that commit; on java 17 its testCompile cannot find them.
+            [ "$version" -ge 87 ] 2> /dev/null && echo "$image_java21" ;;
+        20)
+            # netty transport-native-epoll: 4.2.3 at v100 needs java 11; v90
+            # and earlier build on java 8, verified under both.
+            [ "$version" = 100 ] && echo "$image_java11_native" ;;
     esac
+    return 0
 }
 
-# Maven flags every build gets: skip everything that is not the tests.
+# Maven flags every build gets: skip everything that is not the tests. Four of
+# these are not obvious:
+#   -Djapicmp.skip=true   mapstruct binds japicmp to the build for 14 straight
+#                         versions; they fail on that goal with no compilation
+#                         error at all.
+#   -s aux/settings.xml   Central answers 429 for EVERY artifact when the
+#                         request comes from a compute node, and maven records
+#                         that as a compile failure -- which is exactly what a
+#                         broken commit looks like. That file mirrors central to
+#                         Google's byte-for-byte copy. Maven does NOT fall back
+#                         from a mirror, so read it before changing this.
+#   retryHandler / rto / ttlSeconds
+#                         Belt and braces for the same fault: a transport error
+#                         is indistinguishable from a broken commit.
+#   -Dmaven.legacyLocalRepo=true
+#                         The seeded repo's _remote.repositories files record
+#                         every artifact as coming from repo id `central`, but
+#                         the mirror above renames that id, so maven calls each
+#                         seeded artifact "present, but unavailable" and
+#                         re-verifies it over the network -- 164 needless round
+#                         trips per run, measured, any one of which can reset
+#                         and fail the build. The flag makes the resolver trust
+#                         the local repo rather than its origin tracking. Same
+#                         jars, same versions, so execution is unchanged:
+#                         A/B'd on 1685 v90 order 10, both arms PASS with 247
+#                         reports, re-verifications 164 -> 0, wall 897s -> 664s.
 MVN_OPTS="-Djacoco.skip=true -Dmaven.javadoc.skip=true -Drat.skip=true
 -Dlicense.skip=true -Dcheckstyle.skip -Denforcer.skip=true -Dspotbugs.skip=true
 -Dfindbugs.skip=true -Ddependency-check.skip=true -Dmaven.test.failure.ignore=true
--Drevapi.skip=true -Djapicmp.skip=true -Dgpg.skip=true -DfailIfNoTests=false -fn
--Dmaven.wagon.http.retryHandler.count=6 -Daether.connector.http.retryHandler.count=6
--Daether.connector.connectTimeout=60000 -Daether.connector.requestTimeout=120000"
+-Dhawtjni.skip=true -Drevapi.skip=true -Djapicmp.skip=true -Dgpg.skip=true
+-DfailIfNoTests=false -fn
+-Dmaven.wagon.http.retryHandler.count=6
+-Dmaven.wagon.http.retryHandler.requestSentEnabled=true
+-Dmaven.wagon.httpconnectionManager.ttlSeconds=60 -Dmaven.wagon.rto=120000
+-Daether.connector.http.retryHandler.count=6
+-Daether.connector.http.retryHandler.requestSentEnabled=true
+-Daether.connector.connectTimeout=60000 -Daether.connector.requestTimeout=120000
+-s /otog/aux/settings.xml -Dmaven.legacyLocalRepo=true"
 MVN_OPTS=$(echo $MVN_OPTS)
 
 # Apptainer cannot enforce $otog_memory, so the container sees the whole
@@ -118,11 +191,31 @@ fi
 
 # The backstop for where that -DargLine never arrives: jacoco's prepare-agent
 # rewrites the argLine property mid-build, and the fork is then sized by what
-# the JVM can see -- its cgroup under docker, but the whole node under
-# apptainer, which is 64g of heap on a 256g machine. -XX:MaxRAM rather than a
-# second -Xmx, so a heap nobody configured stays the JVM's own default.
-otog_jvm_max_ram="${OTOG_JVM_MAX_RAM:-$otog_memory}"
+# the JVM can see -- its cgroup under docker, but the whole NODE under
+# apptainer, which measured 30g of heap on this 376g login node and would be
+# ~61g on a 244g compute node. Way over the 16g the container is supposed to be.
+#
+# The percentage is not optional. -XX:MaxRAM alone only tells the JVM how much
+# machine to assume, and it still takes MaxRAMPercentage of it -- the default
+# 25%, so MaxRAM=16g yields a 4g heap. Measured, temurin-17:
+#   nothing                        29.97g
+#   MaxRAM=16g                      4.00g
+#   MaxRAM=16g MaxRAMPercentage=100 16.00g
+# The last is the one that means "this container's whole 16g is available",
+# which is what -DargLine=-Xmx16g already gives every fork that receives it.
+# An explicit -Xmx still wins over both, so the normal path is unchanged.
+# OFF by default, and that is deliberate. Every timing already collected was
+# taken WITHOUT it, and a run only means something next to the other runs of
+# the same order: setting it here would give the profiled repetitions of an
+# order a different heap regime from the plain ones they are compared against.
+# Turn it on (OTOG_JVM_MAX_RAM=16g) only for a campaign that re-runs everything.
+otog_jvm_max_ram="${OTOG_JVM_MAX_RAM-}"
 
 # The maven extension that makes -Dsurefire.runOrder=testorder actually
 # impose the order. Without it a run still passes -- having measured nothing.
 surefire_extension_jar=/otog/aux/surefire-changing-maven-extension-1.0-SNAPSHOT.jar
+
+# The forked plugin that extension pins every build to. It has to be in the
+# seeded dependency/ repo, and it has to be a build that carries PR #15 -- see
+# check_surefire_fork() in setup.sh for what goes wrong when it is not.
+surefire_fork_version=3.0.0-M8-SNAPSHOT

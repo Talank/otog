@@ -1,6 +1,7 @@
 #!/bin/bash
 #
 # bash run_once.sh javaparser/javaparser javaparser-core-testing 2c8ce569 runs/1685/0/order_5/run_1 orders/1685/0/5.txt
+# bash run_once.sh flowable/flowable-engine modules/flowable-engine f32b7e1f runs/1117/-63/order_63/run_1 orders/1117/-63/63.txt
 #
 # Runs one test order once, in one container, from a cold JVM. This is the only
 # place a measurement is taken; everything else decides what to call it with.
@@ -9,7 +10,7 @@
 #      With no order_file the container only prepares the version and extracts
 #      its test list.
 # out: <out_dir>/status = PASS | FAIL:<reason>, plus wall_time.txt, mvn.log,
-#      surefire-reports/, order.txt, node.txt
+#      surefire-reports/, order.txt, order_source.txt, node.txt
 
 set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -68,7 +69,11 @@ run_container() {
     local binds=()
     if [ -n "$order" ]; then
         order=$(cd "$(dirname "$order")" && pwd)/$(basename "$order")
+        # The order itself, and where it came from. Both are impossible to
+        # reconstruct afterwards and cost one write each: "which order was
+        # this?" should be a diff rather than an investigation.
         cp -f "$order" "$out_dir/order.txt"
+        printf '%s\n' "$order" > "$out_dir/order_source.txt"
         binds=(--bind "$order:$container_order_file:ro"
                --env "ORDER_FILE=$container_order_file")
     fi
