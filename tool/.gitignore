@@ -8,4 +8,7 @@ orders/
 orders.zip
 .pytest_cache/
 dependency.zip
-.build/
+images_sif/
+slurm_logs/
+
+docs/jfr_runner_flow.md

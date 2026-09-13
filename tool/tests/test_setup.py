@@ -4,6 +4,7 @@ which can go wrong quietly: the wrong container size, or missing orders."""
 
 import os
 import subprocess
+import zipfile
 from subprocess import PIPE
 from pathlib import Path
 
@@ -90,62 +91,85 @@ def test_off_cluster_runs_are_not_blocked_by_the_check():
     assert run_size_check({}).returncode == 0
 
 
-def test_surefire_fork_is_built_from_source_only_when_the_check_fails():
-    # Cloning and building a maven reactor is not something to redo on every
-    # setup.sh run -- only when the seeded dependency/ turns out to be missing
-    # or wrong.
-    logic = (REPO / "setup.sh").read_text().split("# LOGIC", 1)[1]
-    assert "check_surefire_fork || build_surefire_fork" in logic
+FORK_VERSION = "3.0.0-M8-SNAPSHOT"
+ORDERER = "org/apache/maven/surefire/junitplatform/TestOrderMethodOrderer.class"
+PROVIDER = "org/apache/maven/surefire/junitplatform/JUnitPlatformProvider.class"
 
 
-def test_build_surefire_fork_clones_pr15s_own_repo():
-    # PR #15 is open, not merged, against TestingResearchIllinois/maven-surefire
-    # -- not the upstream apache/maven-surefire, and not a contributor's fork.
-    fn = methods_of("setup.sh").split("build_surefire_fork()", 1)[1].split("\n}", 1)[0]
-    assert "TestingResearchIllinois/maven-surefire" in fn
-    assert "refs/pull/15/head" in fn
-
-
-def test_build_surefire_fork_installs_and_wires_the_extension(tool):
-    # Fakes git and mvn so this runs in milliseconds with no network: git
-    # "clone" just creates the target dir, and "mvn install" drops the
-    # extension jar where the real build would -- the same relative path the
-    # fork's own README gives for it. The seeded .m2 stands in for what a real
-    # `mvn install` would have populated.
-    home = tool.path / "home"
-    m2 = home / ".m2" / "repository" / "org" / "apache" / "maven"
-    for kind, sub in (("surefire", "surefire/surefire-junit-platform"),
-                      ("plugins", "plugins/maven-surefire-plugin")):
-        d = m2 / sub / "3.0.0-M8-SNAPSHOT"
-        d.mkdir(parents=True)
-        (d / "artifact.jar").write_text("jar")
-
-    fakebin = tool.path / "fakebin"
-    fakebin.mkdir()
-    (fakebin / "git").write_text(
-        "#!/bin/bash\n"
-        'for a in "$@"; do case "$a" in\n'
-        '    clone) mkdir -p "${@: -1}"; exit 0 ;;\n'
-        '    merge-base) exit 1 ;;\n'
-        'esac; done\n'
-        "exit 0\n")
-    (fakebin / "mvn").write_text(
-        "#!/bin/bash\n"
-        'ext="$PWD/surefire-changing-maven-extension/target"\n'
-        'mkdir -p "$ext"\n'
-        'echo jar > "$ext/surefire-changing-maven-extension-1.0-SNAPSHOT.jar"\n')
-    (fakebin / "git").chmod(0o755)
-    (fakebin / "mvn").chmod(0o755)
-
-    out = tool.call(f'{methods_of("setup.sh")}\nbuild_surefire_fork',
-                     env={"HOME": str(home),
-                          "PATH": f"{fakebin}:{os.environ['PATH']}"})
-
-    assert out.returncode == 0, out.stdout + out.stderr
+def seed_fork(tool, entries, extra_jars=()):
+    """dependency/ shaped like the seeded maven repo, plus the shipped aux jar."""
     dep = tool.path / "dependency" / "org" / "apache" / "maven"
-    assert (dep / "surefire" / "surefire-junit-platform" /
-            "3.0.0-M8-SNAPSHOT" / "artifact.jar").is_file()
-    assert (dep / "plugins" / "maven-surefire-plugin" /
-            "3.0.0-M8-SNAPSHOT" / "artifact.jar").is_file()
-    assert (tool.path / "aux" /
-            "surefire-changing-maven-extension-1.0-SNAPSHOT.jar").is_file()
+    (dep / "plugins" / "maven-surefire-plugin" / FORK_VERSION).mkdir(parents=True)
+    provider = dep / "surefire" / "surefire-junit-platform" / FORK_VERSION
+    provider.mkdir(parents=True)
+
+    def jar(path, names):
+        with zipfile.ZipFile(path, "w") as z:
+            for name in names:
+                z.writestr(name, "x")
+
+    jar(provider / f"surefire-junit-platform-{FORK_VERSION}.jar", entries)
+    for suffix, names in extra_jars:
+        jar(provider / f"surefire-junit-platform-{FORK_VERSION}-{suffix}.jar", names)
+
+    aux = tool.path / "aux"
+    aux.mkdir(exist_ok=True)
+    (aux / "surefire-changing-maven-extension-1.0-SNAPSHOT.jar").write_text("jar")
+
+
+def check_fork(tool, repeat=1):
+    # pipefail is on in setup.sh, and it is what made this check flaky.
+    return tool.call(f'set -o pipefail\n{methods_of("setup.sh")}\n'
+                     'fails=0\n'
+                     f'for i in $(seq 1 {repeat}); do\n'
+                     '    check_surefire_fork > /dev/null 2>&1 || fails=$((fails+1))\n'
+                     'done\n'
+                     'echo "fails=$fails"')
+
+
+def test_setup_compiles_nothing_on_the_host():
+    # Everything needing a compiler ships prebuilt: the surefire fork in
+    # dependency/, the two small jars in aux/. Building on the host meant setup
+    # broke on any machine whose JDK was newer than the sources expected -- a
+    # JDK 25 laptop could not set up a tool whose builds all happen in
+    # containers targeting JDK 8.
+    text = (REPO / "setup.sh").read_text()
+    logic = text.split("# LOGIC", 1)[1]
+    for command in ("mvn ", "javac ", "cherry-pick", "git clone"):
+        assert command not in text, "setup.sh compiles on the host: %r" % command
+    assert "check_surefire_fork" in logic and "check_jfrsort_agent" in logic
+
+
+def test_the_fork_check_survives_the_sigpipe_race(tool):
+    # `unzip -l | grep -q` let grep exit on the match, which SIGPIPEd unzip,
+    # which pipefail reported as a failed check: a measured 8% of runs called a
+    # correct dependency/ "built without PR #15". That sent setup down a host
+    # maven build that could not work. The listing here is long and the match
+    # is near the front, which is exactly when the old code raced.
+    seed_fork(tool, [ORDERER, PROVIDER] + ["pad/%d.class" % i for i in range(200)])
+    out = check_fork(tool, repeat=60)
+    assert "fails=0" in out.stdout, out.stdout + out.stderr
+
+
+def test_a_javadoc_jar_cannot_stand_in_for_the_real_one(tool):
+    # -javadoc and -sources sort ahead of the real jar and name the class in an
+    # .html or .java entry. A globbed, token-matching check passes on them --
+    # so a fork built WITHOUT PR #15 would be waved through, silently, which is
+    # the one thing this check exists to prevent. Maven's release profiles
+    # attach both, so a rebuilt dependency.zip is likely to contain them.
+    seed_fork(tool, [PROVIDER], extra_jars=[
+        ("javadoc", ["org/apache/maven/surefire/junitplatform/TestOrderMethodOrderer.html"]),
+        ("sources", ["org/apache/maven/surefire/junitplatform/TestOrderMethodOrderer.java"]),
+    ])
+    out = check_fork(tool)
+    assert "fails=1" in out.stdout, out.stdout + out.stderr
+
+
+def test_setup_refuses_a_checkout_without_the_order_extension(tool):
+    # Maven ignores a -Dmaven.ext.class.path that does not exist -- no warning,
+    # BUILD SUCCESS -- and then keeps whatever surefire the project's own pom
+    # asks for. The run passes having imposed no order at all.
+    seed_fork(tool, [ORDERER, PROVIDER])
+    (tool.path / "aux" / "surefire-changing-maven-extension-1.0-SNAPSHOT.jar").unlink()
+    out = check_fork(tool)
+    assert "fails=1" in out.stdout, out.stdout + out.stderr

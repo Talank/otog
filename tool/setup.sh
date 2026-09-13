@@ -60,6 +60,20 @@ make_dirs() {
              "$otog_image_dir" "$otog_image_sif_dir"
 }
 
+quietly() {
+    # Pulling and building images prints hundreds of lines -- layer progress,
+    # apt-get, beanshell. Setup should read as one line per step, so keep the
+    # transcript and only open it when the step actually fails.
+    local log; log=$(mktemp) || return 1
+    "$@" > "$log" 2>&1 || {
+        fail "  failed -- last 20 lines of $*:"
+        tail -20 "$log" >&2
+        rm -f "$log"
+        return 1
+    }
+    rm -f "$log"
+}
+
 build_native_image() {
     # A stock image plus the C toolchain netty's native reactor needs. It is
     # baked in here, and not installed by the native_build_toolchain fix while
@@ -139,10 +153,10 @@ build_images() {
         source=$(native_source_image "$image")
         if [ -n "$source" ]; then
             say "build  $image (from $source, + C toolchain)"
-            build_native_image "$image" "$source" || return 1
+            quietly build_native_image "$image" "$source" || return 1
         else
             say "build  $image"
-            engine_pull "$image" || return 1
+            quietly engine_pull "$image" || return 1
         fi
     done
 }
@@ -185,58 +199,6 @@ fetch_dependency() {
     unzip -q -o "$zip" -d "$tool_dir" || return 1
 }
 
-build_surefire_fork() {
-    # No prebuilt fork with PR #15 in it is published anywhere, and the seeded
-    # dependency/ can arrive without it (see check_surefire_fork). Build it
-    # from source instead, following the fork's own setup instructions --
-    # https://github.com/TestingResearchIllinois/maven-surefire, "To use the
-    # plugin" -- to the letter: clone, cherry-pick PR #15 (open, not yet
-    # merged upstream, as of writing) on top, then `mvn install`.
-    local repo_url=https://github.com/TestingResearchIllinois/maven-surefire.git
-    local branch=modifiedRunOrder-ext
-    local src="$tool_dir/.build/maven-surefire"
-
-    say "build  surefire fork from source (PR #15) -- this takes a while, once"
-
-    if [ -d "$src/.git" ]; then
-        git -C "$src" fetch -q origin "$branch" || return 1
-        git -C "$src" checkout -q -B "$branch" "origin/$branch" || return 1
-    else
-        mkdir -p "$(dirname "$src")" || return 1
-        git clone -q --branch "$branch" "$repo_url" "$src" || return 1
-    fi
-
-    # Cherry-pick PR #15 unless the branch already has it (e.g. it has since
-    # been merged upstream, and a fresh clone brings it in directly).
-    git -C "$src" fetch -q origin refs/pull/15/head || return 1
-    git -C "$src" merge-base --is-ancestor FETCH_HEAD HEAD 2> /dev/null || {
-        git -C "$src" cherry-pick -x FETCH_HEAD || {
-            git -C "$src" cherry-pick --abort 2> /dev/null
-            fail "PR #15 did not cherry-pick cleanly onto $branch"
-            return 1
-        }
-    }
-
-    ( cd "$src" && mvn -q install -DskipTests -Drat.skip -Denforcer.skip ) || return 1
-
-    # check_surefire_fork looks for these two, plus what they need to resolve
-    # (surefire-api, surefire-booter, the other providers) -- so merge in the
-    # whole org.apache.maven.surefire tree the build just installed, not just
-    # the two directories it checks.
-    mkdir -p "$otog_dependency_dir/org/apache/maven/plugins" || return 1
-    cp -r "$HOME/.m2/repository/org/apache/maven/surefire" \
-          "$otog_dependency_dir/org/apache/maven/" || return 1
-    cp -r "$HOME/.m2/repository/org/apache/maven/plugins/maven-surefire-plugin" \
-          "$otog_dependency_dir/org/apache/maven/plugins/" || return 1
-
-    # The extension that pins every build to that plugin version -- see
-    # surefire_extension_jar in config_default.sh.
-    local ext_jar="$src/surefire-changing-maven-extension/target/surefire-changing-maven-extension-1.0-SNAPSHOT.jar"
-    [ -s "$ext_jar" ] || { fail "build produced no $(basename "$ext_jar")"; return 1; }
-    mkdir -p "$tool_dir/aux" || return 1
-    cp -f "$ext_jar" "$tool_dir/aux/"
-}
-
 check_surefire_fork() {
     # The whole experiment rests on -Dsurefire.runOrder=testorder actually
     # imposing the order, and that takes a FORK of maven-surefire, seeded into
@@ -253,6 +215,8 @@ check_surefire_fork() {
     local repo=$otog_dependency_dir/org/apache/maven
     local plugin=$repo/plugins/maven-surefire-plugin/$surefire_fork_version
     local provider=$repo/surefire/surefire-junit-platform/$surefire_fork_version
+    local jar=$provider/surefire-junit-platform-$surefire_fork_version.jar
+    local ext_jar=$tool_dir/aux/$(basename "$surefire_extension_jar")
 
     [ -d "$plugin" ] || {
         fail "dependency/ has no maven-surefire-plugin:$surefire_fork_version"
@@ -260,42 +224,50 @@ check_surefire_fork() {
         return 1
     }
 
-    local jar; jar=$(ls "$provider"/*.jar 2> /dev/null | head -1)
-    [ -n "$jar" ] || { fail "dependency/ has no surefire-junit-platform:$surefire_fork_version"; return 1; }
+    [ -f "$jar" ] || {
+        fail "dependency/ has no surefire-junit-platform:$surefire_fork_version"
+        return 1
+    }
 
-    unzip -l "$jar" 2> /dev/null | grep -q TestOrderMethodOrderer || {
-        fail "$(basename "$jar") has no TestOrderMethodOrderer"
-        fail "  built without PR #15, so JUnit 5 method order will NOT be imposed"
+    # Named rather than globbed, and matched on the .class entry: a -sources or
+    # -javadoc jar sorts ahead of the real one and carries the same name in a
+    # .java or .html entry, so a glob would let a fork built WITHOUT PR #15
+    # pass. Read the listing before matching, too -- piping it into grep -q
+    # lets grep exit on the match, SIGPIPEs unzip, and pipefail reports that as
+    # a missing class on a few percent of runs.
+    local listing; listing=$(unzip -l "$jar" 2> /dev/null)
+    case "$listing" in
+        *"org/apache/maven/surefire/junitplatform/TestOrderMethodOrderer.class"*) ;;
+        *) fail "$(basename "$jar") has no TestOrderMethodOrderer"
+           fail "  built without PR #15, so JUnit 5 method order will NOT be imposed"
+           return 1 ;;
+    esac
+
+    # Without the extension maven quietly keeps whatever surefire the project's
+    # own pom asks for -- and dependency/ carries a dozen other versions, so the
+    # run passes having measured nothing at all.
+    [ -s "$ext_jar" ] || {
+        fail "aux/ has no $(basename "$ext_jar")"
+        fail "  without it -Dsurefire.runOrder=testorder imposes no order"
         return 1
     }
 
     say "have   surefire fork $surefire_fork_version (with the JUnit 5 method orderer)"
 }
 
-build_jfrsort_agent() {
-    local agent_dir="$tool_dir/../jfrsort/agent"
-    local agent_jar="$agent_dir/target/jfrsort-agent.jar"
+check_jfrsort_agent() {
+    # Shipped built, in git, like the surefire extension beside it: setup
+    # compiles nothing on the host, so a machine with no JDK -- or one whose
+    # JDK is newer than the sources expect -- still sets up.
     local aux_jar="$tool_dir/aux/jfrsort-agent.jar"
 
-    # tool/ is meant to travel on its own and it ships the built agent, so a
-    # checkout of just this directory has the jar but not the source it came
-    # from. Only rebuild when that source is actually beside us.
-    [ -d "$agent_dir" ] || {
-        [ -s "$aux_jar" ] && { say "have   jfrsort agent"; return 0; }
-        fail "no jfrsort agent: neither $aux_jar nor its source at $agent_dir"
+    [ -s "$aux_jar" ] || {
+        fail "aux/ has no jfrsort-agent.jar"
+        fail "  rebuild it from jfrsort/agent and commit it, or restore the checkout"
         return 1
     }
 
-    say "build  jfrsort agent"
-    mvn -q -f "$agent_dir/pom.xml" package || return 1
-    [ -s "$agent_jar" ] || {
-        fail "jfrsort agent build produced no $agent_jar"
-        return 1
-    }
-
-    mkdir -p "$(dirname "$aux_jar")" || return 1
-    cp -f "$agent_jar" "$aux_jar"
-    say "copy   jfrsort agent -> aux/"
+    say "have   jfrsort agent"
 }
 
 report() {
@@ -317,7 +289,6 @@ make_dirs    || die "could not create directories"
 build_images || die "could not build the images"
 fetch_orders || die "could not fetch the orders"
 fetch_dependency || die "could not fetch the dependency"
-check_surefire_fork || build_surefire_fork || die "could not build the surefire fork from source"
-check_surefire_fork || die "the seeded dependency repo still cannot impose test order"
-build_jfrsort_agent || die "could not build the jfrsort agent"
+check_surefire_fork || die "the seeded dependency repo cannot impose test order"
+check_jfrsort_agent || die "the jfrsort agent is missing"
 report
