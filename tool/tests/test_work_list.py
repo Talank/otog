@@ -27,9 +27,12 @@ def test_phases_run_in_priority_order(a_module):
 
 
 def test_a_subset_is_just_a_shorter_variable(a_module):
+    # "<module> <version> <order> <phase>". The phase is the 4th column so a
+    # consumer -- the JFR gate, or a scheduler reading --list -- can tell which
+    # phase a row came from without re-deriving it from the version number.
     _, lines = work_list(a_module, MODULES="7", PHASES="v0", ORDERS="1 3")
     rows = [l for l in lines if l.strip()]
-    assert rows == ["7 0 1", "7 0 2", "7 0 3"]
+    assert rows == ["7 0 1 v0", "7 0 2 v0", "7 0 3 v0"]
 
 
 def test_historical_runs_only_its_own_order(a_module):
@@ -37,8 +40,9 @@ def test_historical_runs_only_its_own_order(a_module):
     # version would be 100x the intended work and a different experiment.
     _, lines = work_list(a_module, MODULES="7", PHASES="historical", ORDERS="1 100")
     rows = [l.split() for l in lines if l.strip()]
-    for module, version, order in rows:
+    for module, version, order, phase in rows:
         assert version.lstrip("-") == order, f"{version} should run order {version[1:]}"
+        assert phase == "historical"
 
 
 def test_x10_is_every_tenth_version(a_module):
@@ -59,7 +63,7 @@ def test_x5_never_overlaps_x10(a_module):
 
 def test_a_literal_version_can_be_used_as_a_phase(a_module):
     _, lines = work_list(a_module, MODULES="7", PHASES="10", ORDERS="1 2")
-    assert [l for l in lines if l.strip()] == ["7 10 1", "7 10 2"]
+    assert [l for l in lines if l.strip()] == ["7 10 1 10", "7 10 2 10"]
 
 
 def test_the_plan_is_written_down_before_anything_runs(a_module):

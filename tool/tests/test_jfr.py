@@ -207,8 +207,12 @@ def test_entrypoint_hands_jfr_the_maven_pid_and_module():
 def test_jfr_adds_a_profiled_run_beside_every_plain_one(tool, a_module):
     # Profiling costs ~8%, so the comparison has to come from the same order in
     # the same campaign -- not from a plain run collected weeks earlier.
+    #
+    # The 4th argument is the phase, as the work list writes it. It is what
+    # gates JFR, so leaving it off turns this into a plain campaign and the
+    # test passes having profiled nothing.
     tool.order(7, 0, 1, ["A#a"])
-    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1,
+    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, "v0",
                   env={"JFR": "true", "REPEATS": "2"})
     started = [line.split()[-1] for line in out.stdout.splitlines()
                if line.startswith("DRY")]
@@ -218,7 +222,7 @@ def test_jfr_adds_a_profiled_run_beside_every_plain_one(tool, a_module):
 
 def test_a_plain_campaign_starts_no_profiled_runs(tool, a_module):
     tool.order(7, 0, 1, ["A#a"])
-    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1)
+    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, "v0")
     assert "jfr_run" not in out.stdout
 
 
@@ -226,9 +230,21 @@ def test_profiled_and_plain_runs_never_share_a_directory(tool, a_module):
     # Averaging a profiled timing into the plain repetitions would silently
     # inflate every measurement of that order.
     tool.order(7, 0, 1, ["A#a"])
-    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, env={"JFR": "true", "REPEATS": "1"})
+    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, "v0",
+                  env={"JFR": "true", "REPEATS": "1"})
     dirs = [line.split()[-1] for line in out.stdout.splitlines() if line.startswith("DRY")]
     assert len(set(dirs)) == len(dirs)
+    assert len(dirs) == 2, out.stdout
+
+
+def test_the_future_phases_are_not_profiled(tool, a_module):
+    # JFR only runs on v0 and historical. x10 and x5 exist to confirm an order
+    # still applies at later versions, and profiling them would double the
+    # containers of the largest phases to answer a question nobody asked.
+    tool.order(7, 10, 1, ["A#a"])
+    out = tool.sh("run_experiment.sh", "--one", 7, 10, 1, "x10",
+                  env={"JFR": "true", "REPEATS": "1"})
+    assert "jfr_run" not in out.stdout, out.stdout
 
 
 def test_every_knob_can_be_set_without_editing_the_file(tool, a_module):

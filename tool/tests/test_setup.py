@@ -140,6 +140,21 @@ def test_setup_compiles_nothing_on_the_host():
     assert "check_surefire_fork" in logic and "check_jfrsort_agent" in logic
 
 
+def test_a_quieted_step_cannot_stop_to_ask_a_question():
+    # quietly() sends a step's output to a file, so a prompt it printed would
+    # be invisible -- and the step would sit there waiting on a terminal the
+    # user is no longer watching. apptainer asks exactly that when an
+    # interrupted build left a .sif.tmp behind. The step must read EOF; if it
+    # can reach setup's own stdin it can also block on it.
+    script = (methods_of("setup.sh")
+              + '\nasks() { read -r answer; }\n'
+              + 'quietly asks > /dev/null 2>&1\n'
+              + 'read -r rest; echo "left on stdin:[$rest]"\n')
+    out = subprocess.run(["bash", "-c", script], input="NOT-THE-STEPS-TO-EAT\n",
+                         stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    assert "left on stdin:[NOT-THE-STEPS-TO-EAT]" in out.stdout, out.stdout + out.stderr
+
+
 def test_the_fork_check_survives_the_sigpipe_race(tool):
     # `unzip -l | grep -q` let grep exit on the match, which SIGPIPEd unzip,
     # which pipefail reported as a failed check: a measured 8% of runs called a

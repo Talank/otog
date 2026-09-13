@@ -14,12 +14,16 @@ Compares, for one run directory:
     file. This is the half PR #15 exists for: before it, the JUnit 5 provider
     let the Jupiter engine pick method order.
 
-Three caveats are expected, not bugs:
+Four caveats are expected, not bugs:
   - Maven's "Running <class>" line names the OUTER class for JUnit 5 @Nested
     classes, so class order is compared at outer-class granularity.
   - A class's tests always run contiguously (PR #15's caveat #1), so an order
     file that re-enters a class it already left cannot be honored exactly.
     Those re-entries are collapsed before comparing.
+  - A class surefire RERAN (rerunFailingTestsCount, which the project's own pom
+    sets) prints a second "Running <class>" line after the suite. It is a
+    repeat of a class that already ran, not a place in the order, so it is
+    collapsed and reported rather than counted as a class-order descent.
   - METHOD order is imposed on Jupiter classes ONLY. PR #15 works by
     registering a Jupiter MethodOrderer, and the vintage engine has no such
     hook, so a JUnit 4 class running under the JUnit Platform provider keeps
@@ -85,11 +89,25 @@ for xml in sorted((run_dir / 'surefire-reports').glob('TEST-*.xml')):
 def outer(c):
     return c.split('$', 1)[0]
 
-ran_outer = []
+# A class that comes back LATER is dropped as well, and counted. Surefire's
+# rerunFailingTestsCount re-executes a flaky test after the suite has finished,
+# so its class gets a second "Running" line at the very end -- a second visit
+# to a class that already ran, not a new position in the order. Left in, those
+# reruns read as a scrambled trailing block and fail the run. Measured on
+# flowable 1117 v-63 order 63: 409 classes asked for, 411 "Running" lines,
+# "Flakes: 2" in surefire's own summary, the two extra lines last. The order
+# file's re-entries are collapsed the same way, for the same reason, below.
+ran_outer, reruns = [], 0
+seen_ran = set()
 for c in ran_classes:
     o = outer(c)
-    if not ran_outer or ran_outer[-1] != o:
-        ran_outer.append(o)
+    if ran_outer and ran_outer[-1] == o:
+        continue
+    if o in seen_ran:
+        reruns += 1
+        continue
+    seen_ran.add(o)
+    ran_outer.append(o)
 
 ran_methods = {}
 for xml in sorted((run_dir / 'surefire-reports').glob('TEST-*.xml')):
@@ -183,6 +201,10 @@ else:
 if reentries:
     print(f'   ({reentries} class re-entries in the order file collapsed -- '
           f'a class cannot be split across the run)')
+if reruns:
+    print(f'   ({reruns} rerun(s) of a class that had already run collapsed -- '
+          f'surefire reruns a flaky test after the suite, and the project\'s '
+          f'own pom decides that)')
 
 only_ran = [c for c in set(ran_outer) if c not in set(wanted_outer)]
 never_ran = [c for c in set(wanted_outer) if c not in set(ran_outer)]

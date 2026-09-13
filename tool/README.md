@@ -87,6 +87,48 @@ cold JVM. Timings are comparable across machines only because this is pinned,
 so a run that cannot have it is refused rather than quietly run smaller. The
 three repetitions are three containers, never a loop inside one.
 
+## Tests
+
+No build and nothing to configure. Everything python-side lives in a venv in
+this directory, from `requirements.txt` — `pytest` for the suite and `gdown`
+for the two archives `setup.sh` fetches, which is the whole list:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+Then, from this directory:
+
+```bash
+.venv/bin/python -m pytest tests/ -q                    # whole suite, ~17s
+.venv/bin/python -m pytest tests/test_setup.py -q       # one file
+.venv/bin/python -m pytest tests/ -q -k imposed         # tests whose name matches
+```
+
+`source .venv/bin/activate` first if you would rather type `pytest`. Activate
+it before `bash setup.sh` too, so the download step can find `gdown`; a system
+`pip install pytest gdown` works just as well and the commands are then the
+plain `python3 -m pytest ...`.
+
+They exercise the real scripts, symlinked into a throwaway directory under
+`/tmp`, with `OTOG_ENGINE_DRYRUN=1` — so nothing starts a container, touches
+`runs/`, or needs docker, a JDK or the network.
+
+The exception is `tests/test_run_data.py`, which reads the real `runs/` tree
+and asserts the properties the analysis depends on — that a run kept its
+evidence, and that surefire ran the order it was handed. It skips when there
+is no `runs/`, samples 60 order directories with a fixed seed, and points
+elsewhere on request:
+
+```bash
+OTOG_RUNS=/scratch/$USER/otog_v2/runs .venv/bin/python -m pytest tests/test_run_data.py -q
+OTOG_SAMPLE=0 OTOG_EVERY_ORDER=1 .venv/bin/python -m pytest tests/test_run_data.py -q   # every
+```
+
+A failure there is a statement about the data, not about the code, so read it
+before changing anything.
+
 ## Tutorials
 
 | | |
@@ -108,7 +150,9 @@ container/          the engine layer and what runs inside the container
 data/versions.csv   module_id,slug,module,version,sha
 orders/<module>/<version>/<n>.txt              the test orders
 runs/<module>/<version>/order_<n>/run_<r>/     one measurement each
-tests/              run: pip install pytest && python3 -m pytest tests/ -q
+requirements.txt    pytest and gdown; see Tests above
+tests/              the suite; see Tests above
+scripts/            standalone checks and one-off analysis
 ```
 
 Every script's first comment is a working example, then what it takes input and

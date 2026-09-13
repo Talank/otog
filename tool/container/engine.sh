@@ -239,6 +239,9 @@ engine_pull() {
             # every later run with "executable file not found".
             local sif; sif=$(sif_for_tag "$tag")
             mkdir -p "$(dirname "$sif")"
+            # An interrupted build leaves .sif.tmp behind, and apptainer then
+            # asks whether to overwrite it rather than just building.
+            rm -f "$sif.tmp"
             "$(engine_kind)" build "$sif.tmp" "docker://$tag" && mv "$sif.tmp" "$sif"
             ;;
     esac

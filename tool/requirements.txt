@@ -1,0 +1,18 @@
+# Everything this tool needs beyond the standard library. Two packages, and
+# neither one touches a measurement: the tests never start a container, and
+# gdown only fetches the two archives setup.sh downloads once. A run itself
+# needs none of this -- it happens inside the container, against the JDK and
+# maven baked into the image.
+#
+#   python3 -m venv .venv
+#   .venv/bin/pip install -r requirements.txt
+#   .venv/bin/python -m pytest tests/ -q
+
+# The test suite. Floors, not pins: nothing here is a measurement, so a newer
+# pytest is fine and a pin would only rot.
+pytest>=7.0
+
+# setup.sh fetches orders.zip and dependency.zip from google drive, and a file
+# that size answers curl with an HTML confirm page instead of the archive --
+# which curl would then save AS the archive. See download_file in lib.sh.
+gdown>=5.0

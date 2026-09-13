@@ -64,8 +64,13 @@ quietly() {
     # Pulling and building images prints hundreds of lines -- layer progress,
     # apt-get, beanshell. Setup should read as one line per step, so keep the
     # transcript and only open it when the step actually fails.
+    # stdin from /dev/null, not the terminal: with the output going to a file,
+    # a step that stops to ask something would wait forever behind a single
+    # "build ..." line. apptainer does exactly that when a .sif.tmp is left
+    # over from an interrupted build. Closed stdin turns the question into a
+    # decline, and the failure is then printed like any other.
     local log; log=$(mktemp) || return 1
-    "$@" > "$log" 2>&1 || {
+    "$@" < /dev/null > "$log" 2>&1 || {
         fail "  failed -- last 20 lines of $*:"
         tail -20 "$log" >&2
         rm -f "$log"
