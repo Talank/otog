@@ -11,5 +11,4 @@ dependency.zip
 images_sif/
 slurm_logs/
 
-docs/jfr_runner_flow.md
 .venv/

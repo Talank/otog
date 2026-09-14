@@ -46,6 +46,28 @@ def test_the_readme_only_points_at_files_that_exist():
         assert (REPO / link).exists(), f"README links to missing {link}"
 
 
+def readme_links():
+    return [link for link, _ in
+            re.findall(r'\]\((docs/[^)]+|[a-z_]+\.(sh|md))\)',
+                       (REPO / "README.md").read_text())]
+
+
+def test_the_readme_does_not_point_at_a_file_git_ignores():
+    # docs/jfr_runner_flow.md sat in .gitignore while the README linked to it:
+    # present on every machine that had written it, absent from every fresh
+    # clone. The existence check above passes locally and only fails in CI, so
+    # this one asks git what it would actually ship.
+    import subprocess
+    result = subprocess.run(["git", "-C", str(REPO), "check-ignore"] + readme_links(),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            universal_newlines=True)
+    if result.returncode > 1:
+        import pytest
+        pytest.skip("not a git checkout")
+    assert not result.stdout.strip(), \
+        "README links to files git ignores:\n" + result.stdout
+
+
 def test_there_is_a_tutorial_for_each_platform():
     for name in ("HOPPER.md", "CLOUDLAB.md", "AWS.md"):
         assert (REPO / "docs" / name).exists()
