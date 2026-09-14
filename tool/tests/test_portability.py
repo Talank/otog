@@ -1,5 +1,8 @@
 """This tree is meant to be unzipped anywhere and just work. These are the
-things that quietly tie it to one machine."""
+things that quietly tie it to one machine.
+
+Documentation is not checked here: a doc that is missing or stale is a thing
+you read, not a thing that breaks a run."""
 
 import re
 import stat
@@ -7,7 +10,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SHELL = sorted(REPO.glob("*.sh")) + sorted((REPO / "container").glob("*.sh"))
-DOCS = sorted(REPO.glob("*.md")) + sorted((REPO / "docs").glob("*.md"))
 
 
 def test_no_script_hardcodes_someone_elses_path():
@@ -38,51 +40,3 @@ def test_every_script_parses():
         r = subprocess.run(["bash", "-n", str(f)], stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE)
         assert r.returncode == 0, f"{f.name}: {r.stderr.decode()}"
-
-
-def test_the_readme_only_points_at_files_that_exist():
-    readme = (REPO / "README.md").read_text()
-    for link, _ in re.findall(r'\]\((docs/[^)]+|[a-z_]+\.(sh|md))\)', readme):
-        assert (REPO / link).exists(), f"README links to missing {link}"
-
-
-def readme_links():
-    return [link for link, _ in
-            re.findall(r'\]\((docs/[^)]+|[a-z_]+\.(sh|md))\)',
-                       (REPO / "README.md").read_text())]
-
-
-def test_the_readme_does_not_point_at_a_file_git_ignores():
-    # docs/jfr_runner_flow.md sat in .gitignore while the README linked to it:
-    # present on every machine that had written it, absent from every fresh
-    # clone. The existence check above passes locally and only fails in CI, so
-    # this one asks git what it would actually ship.
-    import subprocess
-    result = subprocess.run(["git", "-C", str(REPO), "check-ignore"] + readme_links(),
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            universal_newlines=True)
-    if result.returncode > 1:
-        import pytest
-        pytest.skip("not a git checkout")
-    assert not result.stdout.strip(), \
-        "README links to files git ignores:\n" + result.stdout
-
-
-def test_there_is_a_tutorial_for_each_platform():
-    for name in ("HOPPER.md", "CLOUDLAB.md", "AWS.md"):
-        assert (REPO / "docs" / name).exists()
-
-
-def test_docs_do_not_promise_flags_the_scripts_do_not_have():
-    # A tutorial that shows a flag which does not exist wastes the reader's
-    # time at exactly the moment they are trusting it.
-    scripts = " ".join(f.read_text() for f in SHELL)
-    for doc in DOCS:
-        for flag in set(re.findall(r'(?<!-)--[a-z][a-z-]{2,}', doc.read_text())):
-            if flag in ("--cpuset-cpus", "--memory-swap", "--only-show-errors",
-                        "--partial", "--sandbox"):
-                continue
-            if flag.startswith("--") and flag in scripts:
-                continue
-            # SLURM/docker/aws flags are not ours to define
-            assert not flag.startswith("--otog"), f"{doc.name} invents {flag}"

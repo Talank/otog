@@ -1,8 +1,7 @@
-# OTOG — does test order change how long a suite takes?
+# OTOG
 
 Runs one test order, at one commit, in a fixed container, and records what it
-cost. Works on a laptop, a server, an AWS instance, a CloudLab node or a SLURM
-cluster — anywhere with Docker or Apptainer.
+cost. Works anywhere with Docker or Apptainer.
 
 ## Start
 
@@ -134,13 +133,3 @@ runs/<module>/<version>/order_<n>/run_<r>/     one measurement each
 
 Every script's header is one usage line, one example, and what it takes and
 produces. Every function has a one-line comment.
-
-## More
-
-| | |
-|---|---|
-| [docs/design.md](docs/design.md) | why the code is the way it is — read before changing it |
-| [docs/jfr_runner_flow.md](docs/jfr_runner_flow.md) | what a profiled run records, and where |
-| [docs/HOPPER.md](docs/HOPPER.md) | a SLURM cluster |
-| [docs/CLOUDLAB.md](docs/CLOUDLAB.md) | CloudLab bare metal |
-| [docs/AWS.md](docs/AWS.md) | AWS, with cost per run |
