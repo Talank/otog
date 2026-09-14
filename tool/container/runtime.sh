@@ -1,59 +1,78 @@
+#!/bin/bash
 #
-# source /otog/container/runtime.sh
+# usage: source /otog/container/runtime.sh
+# e.g.   source /otog/container/runtime.sh; write_status /out PASS
 #
-# Functions the container needs, taken from the helpers.sh that produced the
-# existing dataset. Host-side code uses lib.sh instead.
+# What the container needs, the way lib.sh serves the host. Sourced by
+# entrypoint.sh and by scripts/extract_test_list.sh.
 #
-# Moving a function out of here means checking every caller: tests/
-# test_shell_symbols.py exists because that split dropped several silently.
-#
-# in : $out_dir, a built maven module
-# out: write_status, get_test_list, remove_known_flaky_tests, check_if_run_passed
+# in : $tool_dir, and $out_dir for the callers that write there
+# out: write_status, get_test_list, remove_known_flaky_tests,
+#      remove_known_hanging_tests, check_if_run_passed
 
 
+# ------------------------------------------------------------------ messages
+
+# On unless config turns them off: defaulting to off once hid every diagnostic.
+print_info_message() {
+    [ "${print_info:-true}" = true ] && echo "$1"
+    return 0
+}
+
+print_fail_message() {
+    [ "${print_fail:-true}" = true ] && echo "$1"
+    return 0
+}
+
+# The first line of every run log: what is being built, and when.
+print_snapshot_message() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
+}
+
+print_usage_and_exit() {
+    print_fail_message "error: usage: $1"
+    [ -n "$2" ] && print_fail_message "       e.g.   $2"
+    exit 2
+}
+
+require_command() {
+    if ! command -v "$1" > /dev/null 2>&1; then
+        print_fail_message "error: $1 is not installed or not on PATH"
+        exit 1
+    fi
+}
+
+
+# -------------------------------------------------------------------- status
+
+# Line 1 is the verdict every reader compares against PASS; line 2 is the tool sha.
 write_status() {
-    # "run_status", not "status": zsh makes $status a read-only builtin, and
-    # these helpers get sourced by hand in a shell often enough to matter.
     local out_dir=$1
-    local run_status=$2
+    local verdict=$2
 
     mkdir -p "$out_dir"
-    # The status first -- readers take line 1 -- then which version of the tool
-    # produced it. A run whose code cannot be identified cannot be reproduced.
-    echo "$run_status" > "$out_dir/status"
+    echo "$verdict" > "$out_dir/status"
     [ -n "${OTOG_TOOL_SHA:-}" ] && echo "$OTOG_TOOL_SHA" >> "$out_dir/status"
     return 0
 }
 
-read_status() {
-    # head -1, not cat: write_status appends the tool sha as line 2, and every
-    # caller compares this against PASS. Returning both lines makes a run that
-    # passed look unfinished, and the campaign redoes work it already has.
-    local out_dir=$1
 
-    if [ -f "$out_dir/status" ]; then
-        head -1 "$out_dir/status"
-    else
-        echo "NOT_RUN"
-    fi
-}
+# ----------------------------------------------------------------- test list
 
+# The module's test list, by reflecting on its compiled test classes.
 get_test_list() {
-    # The DEFAULT way to get a test list: reflect on the module's compiled test
-    # classes. Only the module has to be compiled -- the suite never runs.
     local project_dir=$1
     local module=$2
     local test_list_file=$3
 
     mkdir -p "$(dirname "$test_list_file")"
 
-    # The wrapper re-sources config for its own use, which would otherwise throw
-    # away anything apply_fixes added to MVN_OPTS (the SSL and proxy flags some
-    # projects need just to RESOLVE, never mind compile).
+    # OTOG_MVN_OPTS carries the flags apply_fixes added; the wrapper re-sources
+    # config and would otherwise throw them away.
     OTOG_MVN_OPTS="$MVN_OPTS" \
         bash "$tool_dir/scripts/extract_test_list.sh" \
             "$project_dir" "$module" "$test_list_file" || {
-        print_fail_message "❌ Failed to extract the test list by reflection from $project_dir/$module"
+        print_fail_message "error: could not extract the test list from $project_dir/$module"
         return 1
     }
 
@@ -61,54 +80,36 @@ get_test_list() {
     return 0
 }
 
-get_test_list_using_surefire_xml() {
-    # surefire XMLs -> the executed test list, "pkg.Class#method" per line, in
-    # execution order. Test lists now come from reflection instead.
-    local surefire_dir=$1
-    local test_list_file=$2
-
-    mkdir -p "$(dirname "$test_list_file")"
-
-    python3 "$tool_dir/scripts/get_test_list.py" "$surefire_dir" "$test_list_file" || {
-        print_fail_message "❌ Failed to extract the test list from $surefire_dir"
-        return 1
-    }
-
-    apply_test_list_exclusions "$test_list_file"
-    return 0
-}
-
+# Drop tests reflection reports but surefire's own includes/excludes would not run.
 apply_test_list_exclusions() {
-    # Reflection reports every test a class DECLARES, while surefire only runs
-    # what its includes/excludes allow, most visibly the *IT integration tests.
     local test_list_file=$1
 
     if [ -z "${test_list_exclude_pattern:-}" ]; then
         return 0
     fi
 
-    print_info_message "🧹 Dropping excluded tests: $test_list_exclude_pattern"
+    print_info_message "dropping excluded tests: $test_list_exclude_pattern"
     grep -Ev "$test_list_exclude_pattern" "$test_list_file" > "$test_list_file.filtered"
     mv "$test_list_file.filtered" "$test_list_file"
 
-    print_info_message "✅ Test list after exclusions: $(wc -l < "$test_list_file" | tr -d ' ') tests"
+    print_info_message "test list after exclusions: $(wc -l < "$test_list_file" | tr -d ' ') tests"
     return 0
 }
 
+# Remove this project's known flaky tests, from the LIST, before any order exists.
 remove_known_flaky_tests() {
-    #   remove_known_flaky_tests <test_list_file> <slug>
     local test_list_file=$1
     local slug=$2
 
     local flaky_csv="${idoft_flaky_tests_csv:-$tool_dir/data/idoft_flaky_tests.csv}"
 
     if [ -z "$slug" ]; then
-        print_fail_message "❌ remove_known_flaky_tests needs a slug (owner/repo)"
+        print_fail_message "error: remove_known_flaky_tests needs a slug (owner/repo)"
         return 1
     fi
 
     if [ ! -f "$flaky_csv" ]; then
-        print_fail_message "❌ IDoFT dataset not found at $flaky_csv"
+        print_fail_message "error: IDoFT dataset not found at $flaky_csv"
         return 1
     fi
 
@@ -122,7 +123,7 @@ remove_known_flaky_tests() {
             return name
         }
 
-        # ---- pass 1: build the flaky set from the IDoFT csv
+        # pass 1: build the flaky set from the IDoFT csv
         NR == FNR {
             if (FNR == 1) next
 
@@ -132,9 +133,9 @@ remove_known_flaky_tests() {
             sub(/\/+$/, "", url)
             if (tolower(url) != tolower(slug)) next
 
-            # A handful of rows have a comma inside the test name, which shifts
-            # every later field. Rather than write a CSV parser, require field 4
-            # to LOOK like a fully qualified name and skip it when it does not.
+            # A few rows have a comma inside the test name, which shifts every
+            # later field. Require field 4 to LOOK like a fully qualified name
+            # rather than writing a CSV parser.
             name = normalize($4)
             if (name !~ /^[A-Za-z_$][A-Za-z0-9_.$]*\.[A-Za-z_$][A-Za-z0-9_$]*$/) next
 
@@ -149,13 +150,13 @@ remove_known_flaky_tests() {
             next
         }
 
-        # ---- pass 2: filter the test list
+        # pass 2: filter the test list
         {
             if (normalize($0) in flaky) next
             print
         }
     ' "$flaky_csv" "$test_list_file" > "$test_list_file.deflaked" || {
-        print_fail_message "❌ Failed to filter flaky tests out of $test_list_file"
+        print_fail_message "error: could not filter flaky tests out of $test_list_file"
         rm -f "$test_list_file.deflaked"
         return 1
     }
@@ -164,120 +165,127 @@ remove_known_flaky_tests() {
     after=$(wc -l < "$test_list_file" | tr -d ' ')
 
     if [ "$before" -eq "$after" ]; then
-        print_info_message "🔍 No known flaky tests for $slug in this list ($after tests)"
+        print_info_message "no known flaky tests for $slug in this list ($after tests)"
     else
-        print_info_message "🧹 Removed $((before - after)) known flaky test(s) for $slug: $before -> $after tests"
+        print_info_message "removed $((before - after)) known flaky test(s) for $slug: $before -> $after tests"
     fi
 
     return 0
 }
 
-check_if_run_passed() {
-    # Did this run produce usable data? Two things have to be true: maven
-    # reached the end without erroring out, and there are actually surefire
-    # XMLs to parse.
-    local runs_dir=$1   # where the TEST-*.xml were collected
-    local log_file=$2   # the maven log for that same run
+# --------------------------------------------------------------- hanging tests
 
-    # fix_helper.sh sets this for the handful of (project, sha) pairs where the
-    # build never reports BUILD SUCCESS but still produces a usable test run.
-    if [ "${tolerate_failure:-false}" = true ]; then
-        print_info_message "🤖 tolerate_failure is set for this project, accepting the run as-is"
-        return 0
-    fi
+# Drop the tests that hang here, setting $effective_order_file to what runs.
+remove_known_hanging_tests() {
+    local order_file=$1
+    local slug=$2
+    local module=$3
+    local version=$4
+    local out_dir=$5
 
-    print_info_message "🔍 Checking if the run was successful or not..."
+    local csv="${hanging_tests_csv:-$tool_dir/data/hanging_tests.csv}"
 
-    if [ ! -d "$runs_dir" ] || [ ! -f "$log_file" ]; then
-        print_fail_message "🤕 ❌ Log file or the surefire reports not found."
-        return 1
-    fi
+    # Always defined, so a caller can use it unconditionally.
+    effective_order_file="$order_file"
 
-    # Did the run actually reach the tests? Ask for the evidence rather than for
-    # a verbose log: TestNG prints one "Running TestSuite" line for the whole run.
-    if ! grep -q "Tests run: [1-9]" "$log_file"; then
-        print_fail_message "🤕 ❌ The log has no test results at all."
-        return 1
-    fi
+    # Written even when empty: the test set a run used is then a fact on disk,
+    # not something re-derived later from a csv that has moved on since.
+    : > "$out_dir/removed_tests.txt"
 
-    # NOT anchored at the start of the line: a profiled run asks maven for
-    # timestamped output so JFR events can be placed on a timeline.
-    if ! tail -n 30 "$log_file" | grep -Eq '\[INFO\][[:space:]]*BUILD[[:space:]]+SUCCESS[[:space:]]*$' && \
-         tail -n 10 "$log_file" | grep -q "\[ERROR\]"; then
-        print_fail_message "🤕 ❌ No BUILD SUCCESS, and [ERROR] in the last lines of the log."
-        return 1
-    fi
+    [ -f "$csv" ] || return 0
 
-    if [ "$(find "$runs_dir" -maxdepth 1 -name 'TEST-*.xml' | wc -l)" -gt 0 ]; then
-        print_info_message "🤖 ✅ Build succeeded and there are surefire reports in $runs_dir"
-        return 0
-    fi
+    awk -F',' -v slug="$slug" -v module="$module" -v version="$version" \
+        -v removed="$out_dir/removed_tests.txt" '
+        # pass 1: what does the registry say hangs in this module-version?
+        NR == FNR {
+            if (FNR == 1) next
+            if ($1 != slug || $2 != module) next
+            if ($5 != "active") next
 
-    print_fail_message "🤕 ❌ No surefire reports found in $runs_dir."
-    return 1
-}
+            # "*" is every version of this module -- the consistent removal.
+            # Anything else is a version list, which removes the test from
+            # those versions only and leaves them incomparable to the rest.
+            if ($3 == "*") { drop[$4] = 1; next }
 
-check_if_run_all_tests() {
-    # A run can report BUILD SUCCESS and still be truncated by a fork crash, so
-    # the test count is checked too.
-    local test_list=$1
-    local surefire_report_dir=$2
+            n = split($3, want, " ")
+            for (i = 1; i <= n; i++)
+                if (want[i] == version) { drop[$4] = 1; break }
+            next
+        }
 
-    local expected_tests executed_tests temp_tests_file
-
-    expected_tests=$(wc -l < "$test_list" | tr -d ' ')
-    temp_tests_file=$(mktemp "${TMPDIR:-/tmp}/otog_test_list.XXXXXX")
-
-    get_test_list_using_surefire_xml "$surefire_report_dir" "$temp_tests_file" || {
-        rm -f "$temp_tests_file"
+        # pass 2: filter the order, recording what went
+        {
+            hash = index($0, "#")
+            cls = hash ? substr($0, 1, hash - 1) : $0
+            if ($0 in drop || cls in drop) { print > removed; next }
+            print
+        }
+    ' "$csv" "$order_file" > "$out_dir/order_effective.txt" || {
+        print_fail_message "error: could not filter hanging tests out of $order_file"
+        rm -f "$out_dir/order_effective.txt"
         return 1
     }
 
-    executed_tests=$(wc -l < "$temp_tests_file" | tr -d ' ')
-    rm -f "$temp_tests_file"
+    local dropped
+    dropped=$(wc -l < "$out_dir/removed_tests.txt" | tr -d ' ')
 
-    if [ "$expected_tests" -eq "$executed_tests" ]; then
-        print_info_message "🤖 ✅ All $expected_tests tests were executed"
+    if [ "$dropped" -eq 0 ]; then
+        rm -f "$out_dir/order_effective.txt"
+        print_info_message "no active hanging tests for $slug :: $module at version $version"
         return 0
     fi
 
-    print_fail_message "🤕 ❌ Not all tests were executed. Expected: $expected_tests, Executed: $executed_tests"
-    return 1
-}
-
-# On unless config turns them off. Defaulting to off once made every
-# diagnostic in the container disappear, which is the worst way to find out.
-print_info_message() {
-    [ "${print_info:-true}" = true ] && echo "$1"
-    return 0
-}
-
-print_fail_message() {
-    [ "${print_fail:-true}" = true ] && echo "$1"
-    return 0
-}
-
-print_snapshot_message() {
-    # The first line of every run log: what is being built, and when.
-    local message=$1
-
-    echo "🧹 [$(date +'%Y-%m-%d %H:%M:%S')] $message"
-}
-
-print_usage_and_exit() {
-    local usage=$1
-    local example=$2
-
-    print_fail_message "❌ usage: $usage"
-    [ -n "$example" ] && print_fail_message "        e.g. $example"
-    exit 2
-}
-
-require_command() {
-    local command_name=$1
-
-    if ! command -v "$command_name" &> /dev/null; then
-        print_fail_message "❌ $command_name is not installed or not on PATH"
-        exit 1
+    if [ ! -s "$out_dir/order_effective.txt" ]; then
+        print_fail_message "error: removing hanging tests left the order empty"
+        rm -f "$out_dir/order_effective.txt"
+        return 1
     fi
+
+    effective_order_file="$out_dir/order_effective.txt"
+    print_info_message "removed $dropped hanging test(s): $(wc -l < "$order_file" | tr -d ' ') -> $(wc -l < "$effective_order_file" | tr -d ' ') tests"
+    return 0
+}
+
+
+# ------------------------------------------------------------------- verdict
+
+# Did this run produce usable data? Maven reached the end, and there are XMLs.
+check_if_run_passed() {
+    local reports_dir=$1
+    local log_file=$2
+
+    # fix_helper.sh sets this for the versions whose build never reports BUILD
+    # SUCCESS but still produces a usable test run.
+    if [ "${tolerate_failure:-false}" = true ]; then
+        print_info_message "tolerate_failure is set for this project, accepting the run as-is"
+        return 0
+    fi
+
+    if [ ! -d "$reports_dir" ] || [ ! -f "$log_file" ]; then
+        print_fail_message "error: no log file or no surefire reports"
+        return 1
+    fi
+
+    # Ask for the evidence, not for a verbose log: TestNG prints one
+    # "Running TestSuite" line for a whole run.
+    if ! grep -q "Tests run: [1-9]" "$log_file"; then
+        print_fail_message "error: the log has no test results at all"
+        return 1
+    fi
+
+    # Not anchored at the start of the line: a profiled run asks maven for
+    # timestamped output so JFR events can be placed on a timeline.
+    if ! tail -n 30 "$log_file" | grep -Eq '\[INFO\][[:space:]]*BUILD[[:space:]]+SUCCESS[[:space:]]*$' && \
+         tail -n 10 "$log_file" | grep -q "\[ERROR\]"; then
+        print_fail_message "error: no BUILD SUCCESS, and [ERROR] in the last lines of the log"
+        return 1
+    fi
+
+    if [ "$(find "$reports_dir" -maxdepth 1 -name 'TEST-*.xml' | wc -l)" -gt 0 ]; then
+        print_info_message "build succeeded and there are surefire reports in $reports_dir"
+        return 0
+    fi
+
+    print_fail_message "error: no surefire reports found in $reports_dir"
+    return 1
 }

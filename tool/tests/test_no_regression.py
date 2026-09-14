@@ -193,8 +193,7 @@ def test_a_status_reader_answers_with_the_verdict_and_nothing_else():
     with tempfile.TemporaryDirectory() as d:
         with open(os.path.join(d, "status"), "w") as fh:
             fh.write("PASS\ndeadbeef\n")
-        for lib, fn in ((REPO / "container" / "runtime.sh", "read_status"),
-                        (REPO / "lib.sh", "run_status")):
+        for lib, fn in ((REPO / "lib.sh", "run_status"),):
             r = subprocess.run(
                 ["bash", "-c", 'source "%s" > /dev/null 2>&1; %s "%s"' % (lib, fn, d)],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -430,8 +429,8 @@ def test_a_run_leaves_behind_everything_a_later_question_needs():
                + (REPO / "container" / "entrypoint.sh").read_text()
                + (REPO / "container" / "runtime.sh").read_text())
     for artefact in ("compile.log", "git.log", "mvn.log", "node.txt",
-                     "order_source.txt", "order.txt", "status",
-                     "surefire-reports", "wall_time.txt"):
+                     "order_source.txt", "order.txt", "removed_tests.txt",
+                     "status", "surefire-reports", "wall_time.txt"):
         assert artefact in written, "no run writes %s any more" % artefact
 
 
@@ -464,9 +463,8 @@ def test_the_feeder_can_be_stopped_without_hunting_for_its_pid(tmp_path):
     created = not stop.exists()
     try:
         stop.touch()
-        r = subprocess.run(["bash", str(runner)], cwd=str(REPO),
-                           env=dict(os.environ, MAX_JOBS="1", PHASES="v0",
-                                    MODULES="1683", ORDERS="1 2"),
+        r = subprocess.run(["bash", str(runner), "1683", "v0", "1 2", "false", "1"],
+                           cwd=str(REPO), env=dict(os.environ),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                            universal_newlines=True, timeout=120)
         assert "submitted 0 jobs" in r.stdout, r.stdout
@@ -496,14 +494,41 @@ def test_a_submitted_job_runs_in_the_tool_that_submitted_it(tmp_path):
     for f in ("sbatch", "squeue"):
         (shim / f).chmod(0o755)
 
-    subprocess.run(["bash", str(runner)], cwd=str(REPO),
-                   env=dict(os.environ, PATH="%s:%s" % (shim, os.environ["PATH"]),
-                            MAX_JOBS="100000", PHASES="v0", MODULES="1683",
-                            ORDERS="1 1", JFR="true"),
+    subprocess.run(["bash", str(runner), "1683", "v0", "1 1", "true", "100000"],
+                   cwd=str(REPO),
+                   env=dict(os.environ, PATH="%s:%s" % (shim, os.environ["PATH"])),
                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300)
     if not log.exists():
         pytest.skip("nothing was submitted (all reps already passed)")
     assert "--chdir=%s" % REPO in log.read_text().splitlines()[0]
+
+
+def test_the_job_cap_moves_with_the_queue(tmp_path):
+    # A job sitting PENDING is not progress, but an idle scheduler slot is
+    # waste. The cap holds low while the queue is backed up and rises while it
+    # drains, with a dead band in between or it would oscillate every minute.
+    import os
+    runner = REPO / "slurm_run_experiment.sh"
+    if not runner.is_file():
+        pytest.skip("no slurm runner in this tree")
+
+    text = runner.read_text()
+    methods = text.split("# METHODS", 1)[1].split("# LOGIC", 1)[0]
+
+    def cap_with(pending):
+        shim = tmp_path / ("bin%d" % pending); shim.mkdir()
+        (shim / "squeue").write_text(
+            '#!/bin/bash\nfor i in $(seq 1 %d); do echo "otog_job_$i"; done\n' % pending)
+        (shim / "squeue").chmod(0o755)
+        out = subprocess.run(
+            ["bash", "-c", 'cap_busy=250\ncap_idle=350\n%s\njob_cap 300' % methods],
+            env=dict(os.environ, PATH="%s:%s" % (shim, os.environ["PATH"])),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        return out.stdout.strip()
+
+    assert cap_with(150) == "250", "a backed-up queue must not be fed harder"
+    assert cap_with(5) == "350", "a draining queue must be fed harder"
+    assert cap_with(60) == "300", "the dead band must leave the cap alone"
 
 
 def _write_engine_split_run(tmp_path, vintage_jar_in_classpath):

@@ -1,3 +1,8 @@
+#!/bin/bash
+#
+# usage: source config_default.sh
+# e.g.   source config_default.sh; echo "$otog_cpus"
+#
 # Settings for every run. Copy to config.sh to override; config.sh wins and is
 # never overwritten by an update.
 
@@ -5,7 +10,14 @@
 # engines, or timings are not comparable across machines.
 otog_cpus=4
 otog_memory=16g
-otog_repeats=3
+otog_repeats="${OTOG_REPEATS:-3}"
+
+# The campaign run_experiment.sh covers when given no arguments. Modules are
+# ordered cheapest-run-first, so a finished module is a deliverable while the
+# expensive ones are still running.
+otog_modules="1685 1683 3320 3323 2088 29 1778 20 1694 1305 1122 1497 33 3613 1216 1117"
+otog_phases="v0 historical x10 x5"
+otog_orders="1 100"
 
 # docker | apptainer | auto (whichever is installed)
 otog_engine="${OTOG_ENGINE:-auto}"
@@ -26,7 +38,7 @@ otog_orders_dir="$otog_root/orders"
 # The orders are the experiment's input: ~17 GB unpacked, far too big for git,
 # so setup.sh fetches them once. A google drive link is handled with gdown, any
 # other URL with curl.
-otog_orders_url="${OTOG_ORDERS_URL:-https://drive.google.com/file/d/1YWehYp3KAh2KubJcHE2w600N_qgicdZz/view?usp=sharing}"
+otog_orders_url="${OTOG_ORDERS_URL:-https://drive.google.com/file/d/1mIeWslnIdGQskIwrePRAQ_PmlWWldrgV/view?usp=sharing}"
 otog_dependency_url="${OTOG_DEPENDENCY_URL:-https://drive.google.com/file/d/1IjEtfZzuYQ2hqfKfsWoBOD6NUG28KS-J/view?usp=sharing}"
 otog_runs_dir="${OTOG_RUNS_DIR:-$otog_root/runs}"
 otog_workspace_root="${OTOG_WORKSPACE_ROOT:-$otog_root/workspaces}"
@@ -36,6 +48,7 @@ otog_image_sif_dir="$otog_root/images_sif"
 
 versions_csv="$otog_root/data/versions.csv"
 idoft_flaky_tests_csv="$otog_root/data/idoft_flaky_tests.csv"
+hanging_tests_csv="$otog_root/data/hanging_tests.csv"
 fix_registry_csv="$otog_root/data/fix_registry.csv"
 fix_strategies_csv="$otog_root/data/fix_strategies.csv"
 
@@ -53,12 +66,10 @@ container_m2_dir=/m2
 container_m2_shared_dir=/m2-shared
 
 # Each container resolves against its own copy, so no lock is needed --
-# resolver's file-lock sync context breaks outright on NFS under load.
+# the resolver's file-lock sync context breaks outright on NFS under load.
 maven_shared_repo_opts="-Daether.syncContext.named.factory=noop"
 
-# apptainer only: where an image tag lives on disk. A .sif wins over a sandbox
-# directory -- sandbox trees on shared storage have been seen losing individual
-# ELF files, which breaks every run with "executable file not found".
+# apptainer only: where an image tag lives on disk. A .sif wins over a sandbox.
 image_dir_for_tag() {
     local name
     name=$(printf '%s' "$1" | tr ':/' '__')
@@ -69,9 +80,7 @@ image_dir_for_tag() {
     fi
 }
 
-# Where setup.sh writes one. Always the .sif: it is what image_dir_for_tag
-# picks up next time, and the sandbox branch above is only for trees that
-# already have one.
+# Where setup.sh writes one -- always the .sif image_dir_for_tag prefers.
 sif_for_tag() {
     printf '%s/%s.sif' "$otog_image_sif_dir" "$(printf '%s' "$1" | tr ':/' '__')"
 }
@@ -110,12 +119,7 @@ image_for_project() {
     esac
 }
 
-# A few versions need a different JDK than the rest of their project. Numeric
-# tests, not globs on "$1:$2": a glob has to spell out every version it covers,
-# and the ones it silently missed (1216 v87-v89, 1305 v19) are versions whose
-# test sources do not compile on the project's usual JDK. With -fn the reactor
-# carries on regardless, so the build is called OK and the test list comes back
-# EMPTY -- a wrong answer rather than a failure.
+# The few versions needing a different JDK than the rest of their project.
 image_for_version() {
     local module_id=$1
     local version=$2
@@ -141,31 +145,8 @@ image_for_version() {
 }
 
 # Maven flags every build gets: skip everything that is not the tests. Four of
-# these are not obvious:
-#   -Djapicmp.skip=true   mapstruct binds japicmp to the build for 14 straight
-#                         versions; they fail on that goal with no compilation
-#                         error at all.
-#   -s aux/settings.xml   Central answers 429 for EVERY artifact when the
-#                         request comes from a compute node, and maven records
-#                         that as a compile failure -- which is exactly what a
-#                         broken commit looks like. That file mirrors central to
-#                         Google's byte-for-byte copy. Maven does NOT fall back
-#                         from a mirror, so read it before changing this.
-#   retryHandler / rto / ttlSeconds
-#                         Belt and braces for the same fault: a transport error
-#                         is indistinguishable from a broken commit.
-#   -Dmaven.legacyLocalRepo=true
-#                         The seeded repo's _remote.repositories files record
-#                         every artifact as coming from repo id `central`, but
-#                         the mirror above renames that id, so maven calls each
-#                         seeded artifact "present, but unavailable" and
-#                         re-verifies it over the network -- 164 needless round
-#                         trips per run, measured, any one of which can reset
-#                         and fail the build. The flag makes the resolver trust
-#                         the local repo rather than its origin tracking. Same
-#                         jars, same versions, so execution is unchanged:
-#                         A/B'd on 1685 v90 order 10, both arms PASS with 247
-#                         reports, re-verifications 164 -> 0, wall 897s -> 664s.
+# them are not obvious -- japicmp.skip, the settings.xml mirror, the retry
+# handlers, and legacyLocalRepo. See docs/design.md, "Maven flags".
 MVN_OPTS="-Djacoco.skip=true -Dmaven.javadoc.skip=true -Drat.skip=true
 -Dlicense.skip=true -Dcheckstyle.skip -Denforcer.skip=true -Dspotbugs.skip=true
 -Dfindbugs.skip=true -Ddependency-check.skip=true -Dmaven.test.failure.ignore=true
@@ -180,42 +161,22 @@ MVN_OPTS="-Djacoco.skip=true -Dmaven.javadoc.skip=true -Drat.skip=true
 -s /otog/aux/settings.xml -Dmaven.legacyLocalRepo=true"
 MVN_OPTS=$(echo $MVN_OPTS)
 
-# Apptainer cannot enforce $otog_memory, so the container sees the whole
-# machine's MemTotal and JDK 8 would size its heap off that -- and get the job
-# killed. Tell the JVMs directly. Set OTOG_JVM_HEAP= to disable.
+# Apptainer cannot enforce $otog_memory, so a JVM would size its heap off the
+# whole machine and get the job killed. Set OTOG_JVM_HEAP= to disable.
 otog_jvm_heap="${OTOG_JVM_HEAP-${otog_memory%g}g}"
 if [ -n "$otog_jvm_heap" ]; then
     export MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }-Xmx2g"
     MVN_OPTS="$MVN_OPTS -DargLine=-Xmx$otog_jvm_heap"
 fi
 
-# The backstop for where that -DargLine never arrives: jacoco's prepare-agent
-# rewrites the argLine property mid-build, and the fork is then sized by what
-# the JVM can see -- its cgroup under docker, but the whole NODE under
-# apptainer, which measured 30g of heap on this 376g login node and would be
-# ~61g on a 244g compute node. Way over the 16g the container is supposed to be.
-#
-# The percentage is not optional. -XX:MaxRAM alone only tells the JVM how much
-# machine to assume, and it still takes MaxRAMPercentage of it -- the default
-# 25%, so MaxRAM=16g yields a 4g heap. Measured, temurin-17:
-#   nothing                        29.97g
-#   MaxRAM=16g                      4.00g
-#   MaxRAM=16g MaxRAMPercentage=100 16.00g
-# The last is the one that means "this container's whole 16g is available",
-# which is what -DargLine=-Xmx16g already gives every fork that receives it.
-# An explicit -Xmx still wins over both, so the normal path is unchanged.
-# OFF by default, and that is deliberate. Every timing already collected was
-# taken WITHOUT it, and a run only means something next to the other runs of
-# the same order: setting it here would give the profiled repetitions of an
-# order a different heap regime from the plain ones they are compared against.
-# Turn it on (OTOG_JVM_MAX_RAM=16g) only for a campaign that re-runs everything.
+# The backstop for the forks -DargLine never reaches. OFF by default: every
+# timing collected so far was taken without it. See docs/design.md, "Heap".
 otog_jvm_max_ram="${OTOG_JVM_MAX_RAM-}"
 
-# The maven extension that makes -Dsurefire.runOrder=testorder actually
-# impose the order. Without it a run still passes -- having measured nothing.
+# The maven extension that makes -Dsurefire.runOrder=testorder impose the
+# order. Without it a run still passes -- having measured nothing.
 surefire_extension_jar=/otog/aux/surefire-changing-maven-extension-1.0-SNAPSHOT.jar
 
-# The forked plugin that extension pins every build to. It has to be in the
-# seeded dependency/ repo, and it has to be a build that carries PR #15 -- see
-# check_surefire_fork() in setup.sh for what goes wrong when it is not.
+# The forked plugin that extension pins every build to. It must be in the
+# seeded dependency/ repo, and must carry PR #15. See docs/design.md.
 surefire_fork_version=3.0.0-M8-SNAPSHOT

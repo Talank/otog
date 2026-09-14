@@ -1,47 +1,16 @@
 #!/usr/bin/env python3
-"""Did surefire actually run the tests in the order the order file asked for?
+#
+# usage: python3 scripts/check_order_imposed.py <order_file> <run_dir>
+# e.g.   python3 scripts/check_order_imposed.py orders/1685/0/1.txt runs/1685/0/order_1/run_1
+#
+# Did surefire actually run the tests in the order the order file asked for?
+# Exit 0 = yes, 1 = no, 2 = it could not be judged. Run it whenever the fork,
+# its cherry-picked PRs, or a module's JUnit version changes.
+#
+# Four differences are expected rather than bugs -- nested classes, class
+# re-entry, surefire reruns, and the vintage engine. docs/design.md, "Was the
+# order imposed?", says what each one is and which are gated on.
 
-This is the assumption the whole experiment rests on, and it is not
-self-evident: the order-imposing surefire fork only controls what the provider
-in use lets it control. Run this against a finished run directory whenever the
-fork, its cherry-picked PRs, or the JUnit version of a module changes.
-
-Compares, for one run directory:
-  - CLASS order: the "Running <class>" lines of mvn.log, in the order maven
-    printed them, against the class order implied by the order file.
-  - METHOD order: the <testcase> sequence inside each TEST-*.xml (surefire
-    writes them in execution order) against that class's methods in the order
-    file. This is the half PR #15 exists for: before it, the JUnit 5 provider
-    let the Jupiter engine pick method order.
-
-Four caveats are expected, not bugs:
-  - Maven's "Running <class>" line names the OUTER class for JUnit 5 @Nested
-    classes, so class order is compared at outer-class granularity.
-  - A class's tests always run contiguously (PR #15's caveat #1), so an order
-    file that re-enters a class it already left cannot be honored exactly.
-    Those re-entries are collapsed before comparing.
-  - A class surefire RERAN (rerunFailingTestsCount, which the project's own pom
-    sets) prints a second "Running <class>" line after the suite. It is a
-    repeat of a class that already ran, not a place in the order, so it is
-    collapsed and reported rather than counted as a class-order descent.
-  - METHOD order is imposed on Jupiter classes ONLY. PR #15 works by
-    registering a Jupiter MethodOrderer, and the vintage engine has no such
-    hook, so a JUnit 4 class running under the JUnit Platform provider keeps
-    its own method order however the order file was written. Measured with a
-    two-class probe asking for reverse-alphabetical: Jupiter ran charlie,
-    bravo, alpha; vintage ran alpha, bravo, charlie. A mixed-engine module
-    therefore reports method-order differences that are real and not fixable
-    from here -- and its class order arrives as one contiguous block per
-    engine for the same reason. tests/test_no_regression.py has the probe.
-    There is no per-class engine marker in the surefire output, so this is
-    detected module-wide: if any TEST-*.xml's classpath names
-    junit-vintage-engine, method-order mismatches are reported but excluded
-    from the exit code -- CLASS order is still gated either way.
-
-usage: check_order_imposed.py <order_file> <run_dir>
-   e.g. python3 scripts/check_order_imposed.py \
-            orders/1685/10/1.txt runs/1685/10/order_1/run_1
-"""
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -159,9 +128,9 @@ for c in wanted_outer:
 class_order_ok = expected_seq == ran_outer
 class_order_descents = 0
 if class_order_ok:
-    print(f'✅ CLASS order matches ({len(ran_outer)} outer classes)')
+    print(f'ok:      CLASS order matches ({len(ran_outer)} outer classes)')
 else:
-    print(f'❌ CLASS order differs ({len(expected_seq)} expected vs {len(ran_outer)} ran)')
+    print(f'FAILED:  CLASS order differs ({len(expected_seq)} expected vs {len(ran_outer)} ran)')
 
     # HOW it differs matters more than THAT it differs. Rank each class that
     # ran by its position in the requested order and count descents: a run that
@@ -209,9 +178,9 @@ if reruns:
 only_ran = [c for c in set(ran_outer) if c not in set(wanted_outer)]
 never_ran = [c for c in set(wanted_outer) if c not in set(ran_outer)]
 if only_ran:
-    print(f'   ⚠️  {len(only_ran)} class(es) ran that the order file does not name: {only_ran[:3]}')
+    print(f'   warning: {len(only_ran)} class(es) ran that the order file does not name: {only_ran[:3]}')
 if never_ran:
-    print(f'   ⚠️  {len(never_ran)} class(es) in the order file never ran: {never_ran[:3]}')
+    print(f'   warning: {len(never_ran)} class(es) in the order file never ran: {never_ran[:3]}')
 
 # Methods: only classes with more than one method in the order file can tell
 # us anything -- a single-method class is trivially in order.
@@ -236,24 +205,24 @@ for cls, methods in wanted_methods.items():
 
 print()
 if checked == 0:
-    print('⚠️  no multi-method class to check method order with')
+    print('warning: no multi-method class to check method order with')
 elif matched == checked:
-    print(f'✅ METHOD order matches in all {checked} multi-method classes')
+    print(f'ok:      METHOD order matches in all {checked} multi-method classes')
 elif has_vintage_engine:
-    print(f'⚠️  METHOD order differs in {checked - matched} of {checked} multi-method classes '
+    print(f'warning: METHOD order differs in {checked - matched} of {checked} multi-method classes '
           f'(not gated: this module runs junit-vintage-engine, which PR #15 cannot reach)')
     for cls, exp, act in mismatches[:3]:
         print(f'   {cls}')
         print(f'     expected: {exp[:6]}')
         print(f'     ran     : {act[:6]}')
 else:
-    print(f'❌ METHOD order differs in {checked - matched} of {checked} multi-method classes')
+    print(f'FAILED:  METHOD order differs in {checked - matched} of {checked} multi-method classes')
     for cls, exp, act in mismatches[:3]:
         print(f'   {cls}')
         print(f'     expected: {exp[:6]}')
         print(f'     ran     : {act[:6]}')
 
-# The exit code is the verdict. A run that printed ❌ and exited 0 could not be
+# The exit code is the verdict. A run that printed FAILED and exited 0 could not be
 # gated on by a test or a CI job, which is the whole point of this check:
 #   0 = the order was imposed
 #   1 = it was not
@@ -269,7 +238,7 @@ method_order_ok = matched == checked or has_vintage_engine
 class_order_ok_for_gating = class_order_ok or (
     has_vintage_engine and class_order_descents == 1)
 if not ran_outer:
-    print('\n❌ nothing ran: no "Running <class>" lines in mvn.log')
+    print('\nFAILED:  nothing ran: no "Running <class>" lines in mvn.log')
     sys.exit(2)
 if checked == 0 and not class_order_ok_for_gating:
     sys.exit(1)

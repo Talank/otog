@@ -84,8 +84,8 @@ As on CloudLab, split by module so that every order of a module is measured on
 identical hardware:
 
 ```bash
-MODULES="1117 3613"     # instance 1
-MODULES="1216 3320"     # instance 2
+bash run_experiment.sh "1117 3613"     # instance 1
+bash run_experiment.sh "1216 3320"     # instance 2
 ```
 
 Keep every instance the same type. **The node effect is larger than the

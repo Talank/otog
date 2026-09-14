@@ -21,8 +21,9 @@ cd $SCRATCH/otog_v2_2
 bash run_experiment.sh
 ```
 
-`PARALLEL=auto` sizes itself to whatever the node has. Submit with `sbatch`.
-Resumable, so requeue it as often as you like.
+It sizes itself to whatever the node has (`otog_parallel=auto` in
+`config_default.sh`). Submit with `sbatch`; resumable, so requeue it as often
+as you like.
 
 ## B: one job per run (better on a busy cluster)
 

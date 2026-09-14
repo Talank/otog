@@ -79,6 +79,6 @@ Split work **by module**, never by order, and keep every machine the same type
 — the node effect is larger than the ordering effect being measured.
 
 ```bash
-MODULES="1117 3613"     # machine 1
-MODULES="1216 3320"     # machine 2
+bash run_experiment.sh "1117 3613"     # machine 1
+bash run_experiment.sh "1216 3320"     # machine 2
 ```

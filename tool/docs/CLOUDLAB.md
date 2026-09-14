@@ -91,9 +91,9 @@ Give each node a slice by editing the variables at the top of
 
 ```bash
 # on n0
-MODULES="1117 3613"
+bash run_experiment.sh "1117 3613"
 # on n1
-MODULES="1216 3320"
+bash run_experiment.sh "1216 3320"
 ```
 
 Then on each node:

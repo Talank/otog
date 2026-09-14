@@ -1,0 +1,17 @@
+module_id,slug,module,v0_sha
+20,netty/netty,transport-native-epoll,97276486599de0d72d16ceeac8802afa2c2249ef
+29,netty/netty,transport,2d8d8916e5f0fec711b865b2e474eda2269656e2
+33,netty/netty,handler,adccf97256009196c8dbff84e1685012b47ed961
+1117,flowable/flowable-engine,modules/flowable-engine,e57861699df0991a15a3f4895696c7f69c738681
+1122,flowable/flowable-engine,modules/flowable-cmmn-engine,5f65ec9627a67bbd3b20804fd50d353d3c9b76ec
+1216,mapstruct/mapstruct,processor,a89c34f00c58e4b74bb81a102f7e615405c38692
+1305,AsyncHttpClient/async-http-client,client,d4f1e5835b81a5e813033ba2a64a07b020c70007
+1497,apache/incubator-kie-drools,drools-test-coverage/test-compiler-integration,cfcd927b1bd02c6b111d45bd6fedb8e25762bd55
+1683,javaparser/javaparser,javaparser-symbol-solver-testing,6254c7538f14efe09176fc17e7e3dd7de3dfbb15
+1685,javaparser/javaparser,javaparser-core-testing,2c8ce56933b17e6fa6fd9638aeaff604b24dd6c7
+1694,apache/iotdb,iotdb-core/confignode,0ad33adbae3168200442b37fb25160c26c2d26f9
+1778,spring-projects/spring-ai,models/spring-ai-openai,39be9aeba29be4bfab8f8a35857381d845b8c807
+2088,liquibase/liquibase,liquibase-standard,2f474fb30aefb132670d7804cdf005a546e3243c
+3320,apache/curator,curator-recipes,dc6e78513aa076545552b2661940f6ed4bcc5e75
+3323,apache/curator,curator-framework,a162f5b4606277e87f93b93e47c32237490846e1
+3613,apache/paimon,paimon-core,1baa49444461e21d18c12de610e1c7957f9c07ab

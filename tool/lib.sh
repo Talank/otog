@@ -1,52 +1,87 @@
-# Sourced by every script. Loads config, then defines what they share.
+#!/bin/bash
+#
+# usage: source lib.sh
+# e.g.   source lib.sh; version_row 1685 0
+#
+# Sourced by every host-side script: loads config, then defines what they
+# share. The container uses container/runtime.sh instead.
 
 tool_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$tool_dir/config_default.sh"
 [ -f "$tool_dir/config.sh" ] && source "$tool_dir/config.sh"
 source "$tool_dir/container/engine.sh"
 
+
+# ---------------------------------------------------------------- messages
+
 say()  { printf '%s\n' "$*"; }
 fail() { printf '%s\n' "$*" >&2; }
+die()  { fail "$*"; exit 1; }
 
-# engine.sh is sourced here and inside the container, where runtime.sh names
-# these differently. Same vocabulary on both sides.
+# Same vocabulary as the container, so engine.sh reads the same on both sides.
 print_info_message() { say "$@"; }
 print_fail_message() { fail "$@"; }
 
-die() {
-    fail "$*"
-    exit 1
-}
-
+# A script's usage is its header comment, so there is one place to edit.
 usage_of() {
-    # The header comment of a script is its usage. One place to edit.
     sed -n '3,/^$/p' "$1" | sed 's/^# \{0,1\}//'
 }
 
-# in : module version -> out: slug,module,sha
+
+# ------------------------------------------------------------------ lookups
+
+# module version -> "slug,module_path,sha" from data/versions.csv.
 version_row() {
     awk -F, -v m="$1" -v v="$2" 'NR>1 && $1==m && $4==v {print $2","$3","$5; exit}' "$versions_csv"
 }
 
-module_versions() {
-    awk -F, -v m="$1" 'NR>1 && $1==m {print $4}' "$versions_csv" | sort -n
+# slug module_path sha -> the version number. (slug, module, sha) is unique.
+version_of() {
+    awk -F, -v s="$1" -v p="$2" -v h="$3" \
+        'NR>1 && $2==s && $3==p && $5==h {print $4; exit}' "$versions_csv" 2>/dev/null
 }
 
-all_modules() {
-    awk -F, 'NR>1 {print $1}' "$versions_csv" | sort -un
-}
-
+# module version order -> the order file. A number is looked up, anything else is a path.
 order_file() {
-    # A number means orders/<module>/<version>/<n>.txt; anything else is a path.
     case "$3" in
         ''|*[!0-9-]*) printf '%s' "$3" ;;
         *)            printf '%s/%s/%s/%s.txt' "$otog_orders_dir" "$1" "$2" "$3" ;;
     esac
 }
 
+# The same order as a directory name: a number stays a number, a path becomes its file name.
+order_label() {
+    case "$1" in
+        ''|*[!0-9-]*) printf '%s' "$(basename "$1" .txt)" ;;
+        *)            printf '%s' "$1" ;;
+    esac
+}
+
+
+# -------------------------------------------------------------------- state
+
+# Line 1 of a run's status file, or NONE. Line 2 is the tool sha.
+run_status() {
+    head -1 "$1/status" 2>/dev/null || echo NONE
+}
+
+run_passed() {
+    [ "$(run_status "$1")" = PASS ]
+}
+
+# Which version of this tool produced a run. Empty outside a git checkout.
+tool_sha() {
+    local sha
+    sha=$(git -C "$tool_dir" rev-parse --short=12 HEAD 2>/dev/null) || return 0
+    git -C "$tool_dir" diff --quiet HEAD 2>/dev/null || sha="$sha-dirty"
+    echo "$sha"
+}
+
+
+# ------------------------------------------------------------------- files
+
+# gdown for a google drive link, curl for anything else. See docs/design.md.
 download_file() {
-    # gdown for a google drive link: a file this size gets an interstitial
-    # confirm page, which curl would happily save in place of the zip.
     local url=$1
     local dest=$2
 
@@ -61,12 +96,25 @@ download_file() {
     esac
 }
 
+# Take an exclusive lock on an open file descriptor. flock(1) is not on macOS.
+lock_fd() {
+    local fd=$1
+
+    if command -v flock > /dev/null 2>&1; then
+        flock "$fd"
+    elif command -v python3 > /dev/null 2>&1; then
+        python3 -c 'import fcntl,sys; fcntl.flock(int(sys.argv[1]), fcntl.LOCK_EX)' "$fd"
+    else
+        fail "need flock or python3 to lock a workspace"
+        return 1
+    fi
+}
+
+
+# ---------------------------------------------------------------- capacity
+
+# Refuse an allocation smaller than the measurement unit. See docs/design.md.
 check_container_size() {
-    # The experiment's unit is otog_cpus CPUs and otog_memory of RAM, and a
-    # timing taken on a differently sized machine is not comparable with any
-    # other. Docker enforces it with cgroups; apptainer cannot without root, so
-    # there the scheduler's allocation IS the container and a wrong one has to
-    # be loud rather than silently producing unusable numbers.
     [ "$(engine_family)" = docker ] && return 0
     [ -z "${SLURM_JOB_ID:-}" ] && return 0
 
@@ -81,42 +129,7 @@ check_container_size() {
     return 1
 }
 
-tool_sha() {
-    # Which version of the experiment code produced a run. Empty outside a
-    # checkout -- running from a tarball still has to work.
-    local sha
-    sha=$(git -C "$tool_dir" rev-parse --short=12 HEAD 2>/dev/null) || return 0
-    # A dirty tree means the sha does not identify the code that actually ran.
-    git -C "$tool_dir" diff --quiet HEAD 2>/dev/null || sha="$sha-dirty"
-    echo "$sha"
-}
-
-run_status() {
-    head -1 "$1/status" 2>/dev/null || echo NONE
-}
-
-run_passed() {
-    [ "$(run_status "$1")" = PASS ]
-}
-
-# flock(1) is util-linux and not on macOS. python3 locks the same open file
-# description, so the lock outlives the helper and is released by the kernel
-# when this shell's fd closes -- same guarantee, both platforms.
-lock_fd() {
-    local fd=$1
-
-    if command -v flock > /dev/null 2>&1; then
-        flock "$fd"
-    elif command -v python3 > /dev/null 2>&1; then
-        python3 -c 'import fcntl,sys; fcntl.flock(int(sys.argv[1]), fcntl.LOCK_EX)' "$fd"
-    else
-        fail "need flock or python3 to lock a workspace"
-        return 1
-    fi
-}
-
-# What a container can be given here. Ask the engine first: under Docker
-# Desktop it is the VM's allocation, not the Mac's, that bounds a run.
+# CPUs a container can have. Ask the engine first: Docker Desktop runs a VM.
 machine_cpus() {
     local n
     n=$(engine_cpu_count 2> /dev/null)
@@ -136,8 +149,7 @@ machine_mem_gb() {
     fi
 }
 
-# The CPUs a container may be pinned to, one per line. On Linux that is the
-# affinity mask we inherited -- a SLURM allocation, not the whole node.
+# The CPUs this process may use, one per line -- the SLURM allocation, not the node.
 available_cpus() {
     local list
     if [ -r /proc/self/status ]; then
@@ -150,7 +162,7 @@ available_cpus() {
     seq 0 $(( $(machine_cpus) - 1 ))
 }
 
-# How many containers this machine can hold: CPUs and memory both have a say.
+# How many containers fit here: CPUs and memory both have a say.
 parallel_slots() {
     [ "$otog_parallel" != auto ] && { printf '%s' "$otog_parallel"; return; }
 
@@ -162,15 +174,13 @@ parallel_slots() {
     printf '%s' "$by_cpu"
 }
 
-# The $otog_cpus CPUs this container gets. Always pins: an unpinned container
-# quietly takes the whole machine and is no longer the unit being measured.
+# The $otog_cpus CPUs this container is pinned to. Always pins. See docs/design.md.
 cpu_slice() {
     local all count start
     all=$(available_cpus)
     count=$(echo "$all" | wc -l)
     [ "$count" -lt "$otog_cpus" ] && return 1
 
-    # Pick a slice by pid so concurrent containers land on different CPUs.
     start=$(( ($$ % (count / otog_cpus)) * otog_cpus + 1 ))
     echo "$all" | sed -n "${start},$((start + otog_cpus - 1))p" | paste -sd, -
 }

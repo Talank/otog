@@ -18,7 +18,12 @@ def test_the_container_is_four_cpus_and_sixteen_gigabytes():
 
 
 def test_three_repetitions():
-    assert re.search(r'^otog_repeats=3$', config(), re.M)
+    # Three is the unit of measurement, and it lives in exactly one place --
+    # every driver reads $otog_repeats rather than carrying its own default.
+    assert re.search(r'otog_repeats="\$\{OTOG_REPEATS:-3\}"', config())
+    for name in ("run_experiment.sh", "slurm_run_experiment.sh"):
+        text = (REPO / name).read_text()
+        assert "$otog_repeats" in text, "%s has its own repeat count" % name
 
 
 def test_jfr_is_off_by_default():
@@ -61,5 +66,5 @@ def test_one_run_is_one_container_and_repeats_live_outside_it():
     # run_once.sh therefore takes no repeat count; run_experiment.sh loops.
     once = (REPO / "run_once.sh").read_text()
     experiment = (REPO / "run_experiment.sh").read_text()
-    assert "REPEATS" not in once
-    assert "for n in $(seq 1 \"$REPEATS\")" in experiment
+    assert "otog_repeats" not in once
+    assert 'for n in $(seq 1 "$otog_repeats")' in experiment

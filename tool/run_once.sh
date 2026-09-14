@@ -1,14 +1,13 @@
 #!/bin/bash
 #
-# bash run_once.sh javaparser/javaparser javaparser-core-testing 2c8ce569 runs/1685/0/order_5/run_1 orders/1685/0/5.txt
-# bash run_once.sh flowable/flowable-engine modules/flowable-engine f32b7e1f runs/1117/-63/order_63/run_1 orders/1117/-63/63.txt
+# usage: bash run_once.sh <slug> <module> <sha> <out_dir> [order_file] [jfr]
+# e.g.   bash run_once.sh javaparser/javaparser javaparser-core-testing 2c8ce569 runs/1685/0/order_5/run_1 orders/1685/0/5.txt
 #
 # Runs one test order once, in one container, from a cold JVM. This is the only
 # place a measurement is taken; everything else decides what to call it with.
 #
-# in : <slug> <module> <sha> <out_dir> [order_file] [jfr:true|false]
-#      With no order_file the container only prepares the version and extracts
-#      its test list.
+# in : the arguments above. With no order_file the container only prepares the
+#      version and extracts its test list.
 # out: <out_dir>/status = PASS | FAIL:<reason>, plus wall_time.txt, mvn.log,
 #      surefire-reports/, order.txt, order_source.txt, node.txt
 
@@ -25,11 +24,16 @@ jfr=${6:-$otog_jfr}
 [ -z "$out_dir" ] && die "$(usage_of "$0")"
 
 image=${IMAGE:-$(image_for_project "$slug")}
+# Derived, not required as an argument: the hanging-test registry is keyed on
+# the version, and a removal has to reach EVERY run of it -- including one
+# started by hand with an order of your own.
+version=${VERSION:-$(version_of "$slug" "$module" "$sha")}
 workspace="$otog_workspace_root/${slug//\//_}_${module//\//_}_${sha:0:12}"
 
 
 # METHODS
 
+# Refuse before starting anything a container would only fail on.
 check_inputs() {
     require_engine || return 1
     check_container_size || return 1
@@ -48,19 +52,18 @@ check_inputs() {
     }
 }
 
+# One container per checkout: two mavens in one working tree race in target/.
 take_workspace() {
-    # One container per checkout: two mavens in one working tree race in
-    # target/. The lock is released by the kernel however this script exits.
     mkdir -p "$workspace" "$otog_dependency_dir" || return 1
     exec 9> "$workspace.lock" || return 1
     lock_fd 9 || return 1
 }
 
+# Start the container that takes the measurement.
 run_container() {
     mkdir -p "$out_dir" "$workspace/home" "$workspace/m2" || return 1
 
-    # Docker reads a relative bind source as a named volume, and the README
-    # calls this with a relative out_dir.
+    # Docker reads a relative bind source as a named volume, so make it absolute.
     out_dir=$(cd "$out_dir" && pwd) || return 1
 
     rm -f "$out_dir/status"
@@ -69,9 +72,7 @@ run_container() {
     local binds=()
     if [ -n "$order" ]; then
         order=$(cd "$(dirname "$order")" && pwd)/$(basename "$order")
-        # The order itself, and where it came from. Both are impossible to
-        # reconstruct afterwards and cost one write each: "which order was
-        # this?" should be a diff rather than an investigation.
+        # The order, and where it came from: neither can be reconstructed later.
         cp -f "$order" "$out_dir/order.txt"
         printf '%s\n' "$order" > "$out_dir/order_source.txt"
         binds=(--bind "$order:$container_order_file:ro"
@@ -83,6 +84,7 @@ run_container() {
         --image "$image" \
         --cpuset "$(cpu_slice)" --memory "$otog_memory" \
         --env "SLUG=$slug" --env "MODULE=$module" --env "SHA=$sha" \
+        --env "VERSION=$version" \
         --env "OTOG_TOOL_SHA=$(tool_sha)" \
         --bind "$tool_dir:/otog:ro" \
         --bind "$workspace:$container_work_dir" \
@@ -95,6 +97,7 @@ run_container() {
         -- bash /otog/container/entrypoint.sh
 }
 
+# One line per run: PASS, the failure reason, or DRY for a dry run.
 report() {
     [ -n "${OTOG_ENGINE_DRYRUN:-}" ] && { say "DRY   $out_dir"; return 0; }
 

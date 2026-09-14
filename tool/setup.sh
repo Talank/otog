@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# bash setup.sh docker          # or: bash setup.sh apptainer
+# usage: bash setup.sh <docker|apptainer>
+# e.g.   bash setup.sh docker
 #
-# One-time setup in this directory: checks the engine is usable, builds the
-# container images, fetches the orders, and creates the directories a run
-# needs. Safe to re-run -- anything already there is left alone.
+# One-time setup in this directory: checks the engine, builds the images,
+# fetches the orders and the seeded maven repo. Safe to re-run.
 #
-# in : docker | apptainer, and otog_orders_url for the orders
-# out: images/ populated, orders/ unpacked, runs/ workspaces/ dependency/ created
+# in : docker | apptainer
+# out: images/ populated, orders/ and dependency/ unpacked, runs/ workspaces/ created
 
 set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -25,6 +25,7 @@ images="$image_java8 $image_java11 $image_java17 $image_java21
 
 # METHODS
 
+# Refuse early if the engine is missing or this user cannot drive it.
 check_engine() {
     engine_is_usable && return 0
     fail "$engine is not installed or not usable by this user."
@@ -36,10 +37,8 @@ check_engine() {
     return 1
 }
 
+# Record the engine in config.sh, which every later script reads.
 save_engine() {
-    # config.sh wins over config_default.sh, so this is what every later script
-    # uses. Edit that line to run on a different engine. OTOG_ENGINE still wins
-    # over both, for a one-off run.
     local config="$tool_dir/config.sh"
     local line="otog_engine=\"\${OTOG_ENGINE:-$engine}\""
 
@@ -60,15 +59,8 @@ make_dirs() {
              "$otog_image_dir" "$otog_image_sif_dir"
 }
 
+# Run a step quietly, printing its log only if it fails. See docs/design.md.
 quietly() {
-    # Pulling and building images prints hundreds of lines -- layer progress,
-    # apt-get, beanshell. Setup should read as one line per step, so keep the
-    # transcript and only open it when the step actually fails.
-    # stdin from /dev/null, not the terminal: with the output going to a file,
-    # a step that stops to ask something would wait forever behind a single
-    # "build ..." line. apptainer does exactly that when a .sif.tmp is left
-    # over from an interrupted build. Closed stdin turns the question into a
-    # decline, and the failure is then printed like any other.
     local log; log=$(mktemp) || return 1
     "$@" < /dev/null > "$log" 2>&1 || {
         fail "  failed -- last 20 lines of $*:"
@@ -79,19 +71,15 @@ quietly() {
     rm -f "$log"
 }
 
+# A stock image plus the C toolchain netty needs. See docs/design.md.
 build_native_image() {
-    # A stock image plus the C toolchain netty's native reactor needs. It is
-    # baked in here, and not installed by the native_build_toolchain fix while
-    # the run is going, because that needs root and a writable /usr -- true
-    # under docker, false under apptainer, which runs as the calling user on a
-    # read-only image.
     local tag=$1
     local source_tag=$2
     local rc
 
     if [ "$(engine_family)" = docker ]; then
-        # An empty build context holding only the Dockerfile: handing docker
-        # the tool directory would ship the whole runs/ tree to the daemon.
+        # An empty build context: handing docker this directory would ship
+        # the whole runs/ tree to the daemon.
         local context; context=$(mktemp -d) || return 1
         cat > "$context/Dockerfile" <<DOCKERFILE
 FROM $source_tag
@@ -105,8 +93,8 @@ DOCKERFILE
         return $rc
     fi
 
-    # A sandbox is apptainer's only writable form, so build one, add the
-    # toolchain, then seal it into the .sif that every run uses.
+    # A sandbox is apptainer's only writable form: build one, add the
+    # toolchain, then seal it into the .sif every run uses.
     local sif; sif=$(sif_for_tag "$tag")
     local sandbox="$sif.sandbox"
     mkdir -p "$(dirname "$sif")"
@@ -116,14 +104,8 @@ DOCKERFILE
         rm -rf "$sandbox"; return 1
     }
 
-    # Three things this needs that a plain apt-get install does not:
-    #   --fakeroot            uid 0 inside, or dpkg cannot unpack
-    #   APPTAINER_BIND unset  the apptainer module presets binds, and with
-    #                         --writable apptainer cannot create a missing
-    #                         mountpoint
-    #   APT::Sandbox::User    apt drops to the _apt user to fetch, and a
-    #                         root-mapped namespace with no subuid range has no
-    #                         second uid to drop TO
+    # --fakeroot, no preset binds and APT::Sandbox::User=root are all
+    # required here; docs/design.md says why each one is.
     env -u APPTAINER_BIND -u SINGULARITY_BIND \
         "$(engine_kind)" exec --fakeroot --writable "$sandbox" \
         bash -c "export DEBIAN_FRONTEND=noninteractive
@@ -134,9 +116,7 @@ DOCKERFILE
         rm -rf "$sandbox"; return 1
     }
 
-    # libtoolize, not libtool: the package ships the macros and libtoolize, and
-    # the libtool script itself is generated per project by configure. netty's
-    # autogen.sh calls libtoolize.
+    # libtoolize, not libtool: the libtool script is generated per project.
     "$(engine_kind)" exec "$sandbox" \
         bash -c 'command -v make gcc autoconf automake libtoolize > /dev/null' || {
         fail "$tag still has no complete C toolchain"
@@ -148,6 +128,7 @@ DOCKERFILE
     return $rc
 }
 
+# Build or pull every image the campaign uses, skipping the ones already here.
 build_images() {
     local image source
     for image in $images; do
@@ -166,6 +147,7 @@ build_images() {
     done
 }
 
+# Download and unpack the orders once; a non-empty orders/ is left alone.
 fetch_orders() {
     local zip="$tool_dir/orders.zip"
 
@@ -185,6 +167,7 @@ fetch_orders() {
     unzip -q -o "$zip" -d "$tool_dir" || return 1
 }
 
+# Download and unpack the seeded maven repo once; a non-empty one is left alone.
 fetch_dependency() {
     local zip="$tool_dir/dependency.zip"
 
@@ -204,19 +187,8 @@ fetch_dependency() {
     unzip -q -o "$zip" -d "$tool_dir" || return 1
 }
 
+# The seeded repo must carry the order-imposing surefire fork. See docs/design.md.
 check_surefire_fork() {
-    # The whole experiment rests on -Dsurefire.runOrder=testorder actually
-    # imposing the order, and that takes a FORK of maven-surefire, seeded into
-    # dependency/. Two things can be wrong with what arrives there, and both
-    # look like a working run that measured the wrong thing:
-    #
-    #   the plugin is missing     every order run dies "Plugin could not be
-    #                             resolved", which is at least loud.
-    #   the plugin is there, but  built without PR #15. Then the JUnit 5
-    #   without the method        provider hands whole classes to the Jupiter
-    #   orderer                   engine and lets the engine pick method order,
-    #                             so class order is imposed and method order is
-    #                             not -- silently, on every JUnit 5 project.
     local repo=$otog_dependency_dir/org/apache/maven
     local plugin=$repo/plugins/maven-surefire-plugin/$surefire_fork_version
     local provider=$repo/surefire/surefire-junit-platform/$surefire_fork_version
@@ -234,12 +206,8 @@ check_surefire_fork() {
         return 1
     }
 
-    # Named rather than globbed, and matched on the .class entry: a -sources or
-    # -javadoc jar sorts ahead of the real one and carries the same name in a
-    # .java or .html entry, so a glob would let a fork built WITHOUT PR #15
-    # pass. Read the listing before matching, too -- piping it into grep -q
-    # lets grep exit on the match, SIGPIPEs unzip, and pipefail reports that as
-    # a missing class on a few percent of runs.
+    # Named not globbed, matched on the .class entry, and read before matching
+    # rather than piped into grep. docs/design.md says what each one prevents.
     local listing; listing=$(unzip -l "$jar" 2> /dev/null)
     case "$listing" in
         *"org/apache/maven/surefire/junitplatform/TestOrderMethodOrderer.class"*) ;;
@@ -248,9 +216,8 @@ check_surefire_fork() {
            return 1 ;;
     esac
 
-    # Without the extension maven quietly keeps whatever surefire the project's
-    # own pom asks for -- and dependency/ carries a dozen other versions, so the
-    # run passes having measured nothing at all.
+    # Without the extension maven quietly keeps the project's own surefire,
+    # and the run passes having imposed no order at all.
     [ -s "$ext_jar" ] || {
         fail "aux/ has no $(basename "$ext_jar")"
         fail "  without it -Dsurefire.runOrder=testorder imposes no order"
@@ -260,10 +227,8 @@ check_surefire_fork() {
     say "have   surefire fork $surefire_fork_version (with the JUnit 5 method orderer)"
 }
 
+# The jfrsort agent ships built, like the surefire extension: setup compiles nothing.
 check_jfrsort_agent() {
-    # Shipped built, in git, like the surefire extension beside it: setup
-    # compiles nothing on the host, so a machine with no JDK -- or one whose
-    # JDK is newer than the sources expect -- still sets up.
     local aux_jar="$tool_dir/aux/jfrsort-agent.jar"
 
     [ -s "$aux_jar" ] || {
@@ -275,6 +240,7 @@ check_jfrsort_agent() {
     say "have   jfrsort agent"
 }
 
+# What setup produced, and what to run next.
 report() {
     say ""
     say "engine   : $(engine_kind)  (saved in config.sh)"

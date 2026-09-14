@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 #
-# bash jfr_setup.sh
+# usage: bash jfr_setup.sh
+# e.g.   bash jfr_setup.sh
 #
-# Find the installed JDK, verify its JFR command, and make it available to
-# future zsh sessions. Safe to re-run.
+# Finds the installed JDK, verifies its jfr command and puts it on the PATH of
+# future shells -- some machines have a JDK whose bin/ was never exported.
+#
+# in : nothing, or JFR_SHELL_RC to write somewhere other than ~/.zshrc
+# out: JAVA_HOME and PATH exported, and appended to the shell rc once
 
 set -euo pipefail
 

@@ -67,13 +67,7 @@ def test_run_once_refuses_an_order_file_that_is_not_there(a_module):
 
 def test_run_experiment_skips_a_version_missing_from_the_csv(a_module):
     # A typo'd module should not silently produce an empty run tree.
-    import re
-    text = (a_module.path / "run_experiment.sh").read_text()
-    text = re.sub(r'^MODULES=.*$', 'MODULES="999"', text, count=1, flags=re.M)
-    text = re.sub(r'^PHASES=.*$', 'PHASES="v0"', text, count=1, flags=re.M)
-    (a_module.path / "s.sh").write_text(text)
-
-    result = a_module.sh("s.sh")
+    result = a_module.sh("run_experiment.sh", "999", "v0", "1 1", "false")
 
     assert result.returncode == 0
     assert not list((a_module.path / "runs").glob("999/**/status"))
@@ -86,12 +80,7 @@ def test_a_repetition_that_already_passed_is_not_run_again(a_module):
     done = a_module.run(7, 0, 1, 1, status="PASS")
     stamp = (done / "status").stat().st_mtime_ns
 
-    import re
-    text = (a_module.path / "run_experiment.sh").read_text()
-    for key, value in (("MODULES", "7"), ("PHASES", "v0"), ("ORDERS", "1 1")):
-        text = re.sub(rf'^{key}=.*$', f'{key}="{value}"', text, count=1, flags=re.M)
-    (a_module.path / "s.sh").write_text(text)
-    a_module.sh("s.sh")
+    a_module.sh("run_experiment.sh", "7", "v0", "1 1", "false")
 
     assert (done / "status").stat().st_mtime_ns == stamp
 

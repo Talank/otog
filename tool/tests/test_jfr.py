@@ -212,8 +212,8 @@ def test_jfr_adds_a_profiled_run_beside_every_plain_one(tool, a_module):
     # gates JFR, so leaving it off turns this into a plain campaign and the
     # test passes having profiled nothing.
     tool.order(7, 0, 1, ["A#a"])
-    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, "v0",
-                  env={"JFR": "true", "REPEATS": "2"})
+    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, "v0", "true",
+                  env={"OTOG_REPEATS": "2"})
     started = [line.split()[-1] for line in out.stdout.splitlines()
                if line.startswith("DRY")]
     assert [Path(p).name for p in started] == [
@@ -222,7 +222,7 @@ def test_jfr_adds_a_profiled_run_beside_every_plain_one(tool, a_module):
 
 def test_a_plain_campaign_starts_no_profiled_runs(tool, a_module):
     tool.order(7, 0, 1, ["A#a"])
-    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, "v0")
+    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, "v0", "false")
     assert "jfr_run" not in out.stdout
 
 
@@ -230,8 +230,8 @@ def test_profiled_and_plain_runs_never_share_a_directory(tool, a_module):
     # Averaging a profiled timing into the plain repetitions would silently
     # inflate every measurement of that order.
     tool.order(7, 0, 1, ["A#a"])
-    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, "v0",
-                  env={"JFR": "true", "REPEATS": "1"})
+    out = tool.sh("run_experiment.sh", "--one", 7, 0, 1, "v0", "true",
+                  env={"OTOG_REPEATS": "1"})
     dirs = [line.split()[-1] for line in out.stdout.splitlines() if line.startswith("DRY")]
     assert len(set(dirs)) == len(dirs)
     assert len(dirs) == 2, out.stdout
@@ -242,8 +242,8 @@ def test_the_future_phases_are_not_profiled(tool, a_module):
     # still applies at later versions, and profiling them would double the
     # containers of the largest phases to answer a question nobody asked.
     tool.order(7, 10, 1, ["A#a"])
-    out = tool.sh("run_experiment.sh", "--one", 7, 10, 1, "x10",
-                  env={"JFR": "true", "REPEATS": "1"})
+    out = tool.sh("run_experiment.sh", "--one", 7, 10, 1, "x10", "true",
+                  env={"OTOG_REPEATS": "1"})
     assert "jfr_run" not in out.stdout, out.stdout
 
 
@@ -252,9 +252,8 @@ def test_every_knob_can_be_set_without_editing_the_file(tool, a_module):
     # git, and tool_sha then reports -dirty for every run of that campaign.
     tool.order(7, 0, 1, ["A#a"])
     tool.order(7, 0, 2, ["A#a"])
-    out = tool.sh("run_experiment.sh",
-                  env={"MODULES": "7", "PHASES": "v0", "ORDERS": "1 2",
-                       "REPEATS": "1", "PARALLEL": "1", "JFR": "false"})
+    out = tool.sh("run_experiment.sh", "7", "v0", "1 2", "false",
+                  env={"OTOG_REPEATS": "1", "OTOG_PARALLEL": "1"})
     started = [Path(line.split()[-1]).parent.name
                for line in out.stdout.splitlines() if line.startswith("DRY")]
     assert sorted(started) == ["order_1", "order_2"], out.stdout

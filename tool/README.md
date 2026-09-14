@@ -11,35 +11,35 @@ bash setup.sh docker          # once. or: bash setup.sh apptainer
 bash run_experiment.sh        # the whole experiment
 ```
 
-`setup.sh` prints how many containers your machine fits. `run_experiment.sh`
-sizes itself to that automatically — no configuration needed to start.
-
-It is **resumable**: a repetition that already passed is skipped, so you can
-stop it and re-run it any time.
+`setup.sh` prints how many containers your machine fits; `run_experiment.sh`
+sizes itself to that. It is **resumable** — a repetition that already passed is
+skipped — so you can stop it and re-run it any time.
 
 ## Run a subset
 
-Everything is in the variables at the top of `run_experiment.sh`:
+Every script takes plain arguments. `run_experiment.sh` takes four, and each
+one falls back to the default in `config_default.sh`:
 
 ```bash
-MODULES="1685 1683 1778 ..."   # which projects
-PHASES="v0 historical x10 x5"  # priority order, first to last
-ORDERS="1 100"                 # first and last order number
-REPEATS=3
-PARALLEL=auto                  # auto = as many as CPUs and memory allow
-JFR=false
+bash run_experiment.sh <modules> <phases> <orders> <jfr>
+
+bash run_experiment.sh 1685 v0 "1 10"          # one module, v0, first 10 orders
+bash run_experiment.sh "1685 1683" historical  # two modules, the past 100 versions
+bash run_experiment.sh 1685 v0 "1 5" true      # ...and profile them with JFR
 ```
 
-One module, version 0, first ten orders:
-
-```bash
-MODULES="1685"
-PHASES="v0"
-ORDERS="1 10"
-```
+- **modules** — module ids, as in `data/versions.csv`
+- **phases** — `v0`, `historical`, `x10`, `x5`, or a literal version number
+- **orders** — first and last order number
+- **jfr** — `true` adds a profiled run beside every plain one, on `v0` and
+  `historical` only
 
 `work_list.txt` is written before anything runs, so you can always see exactly
-what it is about to do.
+what it is about to do. `bash run_experiment.sh --list ...` prints it and stops.
+
+Repetitions and parallelism come from `config_default.sh` (`otog_repeats`,
+`otog_parallel`). Copy it to `config.sh` to change them; `config.sh` wins and is
+never overwritten.
 
 ## Run one order yourself
 
@@ -51,19 +51,19 @@ bash run_once.sh javaparser/javaparser javaparser-core-testing \
      /tmp/myrun orders/1685/0/1.txt
 ```
 
-The order file is one `pkg.Class#method` per line. **Any** file works — a
-solver's output, a hand-written order, anything — so this is how you try your
-own ordering for a module:
-
-```bash
-# your own order for module 1685 at version 0
-bash run_once.sh javaparser/javaparser javaparser-core-testing <sha> \
-     runs/1685/0/order_mine/run_1 my_order.txt
-```
-
 Look up `<slug> <module> <sha>` for any module and version in
 `data/versions.csv`. Results land in `<out_dir>`: `status`, `wall_time.txt`,
 `mvn.log`, `surefire-reports/`.
+
+**Any file works as an order** — a solver's output, a hand-written order,
+anything. Give one to `run_experiment.sh` in place of an order number and it is
+run three times, in its own directories, with the same fixes as every other
+order of that module-version:
+
+```bash
+bash run_experiment.sh --one 1685 0 /tmp/arbitrary_order.txt v0
+# -> runs/1685/0/order_arbitrary_order/run_1, run_2, run_3
+```
 
 To see what would happen without starting a container, set
 `OTOG_ENGINE_DRYRUN=1` — it prints the exact container command and runs nothing.
@@ -83,77 +83,64 @@ changes. A run can otherwise pass having measured nothing.
 ## The container
 
 Every run gets **4 CPUs and 16 GB**, on every machine and both engines, from a
-cold JVM. Timings are comparable across machines only because this is pinned,
-so a run that cannot have it is refused rather than quietly run smaller. The
-three repetitions are three containers, never a loop inside one.
+cold JVM. Timings are comparable across machines only because this is pinned, so
+a run that cannot have it is refused rather than quietly run smaller. The three
+repetitions are three containers, never a loop inside one.
 
 ## Tests
-
-No build and nothing to configure. Everything python-side lives in a venv in
-this directory, from `requirements.txt` — `pytest` for the suite and `gdown`
-for the two archives `setup.sh` fetches, which is the whole list:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-```
 
-Then, from this directory:
-
-```bash
 .venv/bin/python -m pytest tests/ -q                    # whole suite, ~17s
 .venv/bin/python -m pytest tests/test_setup.py -q       # one file
 .venv/bin/python -m pytest tests/ -q -k imposed         # tests whose name matches
 ```
 
-`source .venv/bin/activate` first if you would rather type `pytest`. Activate
-it before `bash setup.sh` too, so the download step can find `gdown`; a system
-`pip install pytest gdown` works just as well and the commands are then the
-plain `python3 -m pytest ...`.
+`pytest` and `gdown` are the only dependencies; a system `pip install pytest
+gdown` works just as well, and the commands are then the plain `python3 -m
+pytest ...`. Activate the venv before `bash setup.sh` so its download step can
+find `gdown`.
 
-They exercise the real scripts, symlinked into a throwaway directory under
-`/tmp`, with `OTOG_ENGINE_DRYRUN=1` — so nothing starts a container, touches
-`runs/`, or needs docker, a JDK or the network.
-
-The exception is `tests/test_run_data.py`, which reads the real `runs/` tree
-and asserts the properties the analysis depends on — that a run kept its
-evidence, and that surefire ran the order it was handed. It skips when there
-is no `runs/`, samples 60 order directories with a fixed seed, and points
-elsewhere on request:
+The suite exercises the real scripts, symlinked into a throwaway directory, with
+`OTOG_ENGINE_DRYRUN=1` — nothing starts a container, touches `runs/`, or needs
+docker, a JDK or the network. The exception is `tests/test_run_data.py`, which
+reads the real `runs/` tree and asserts the properties the analysis depends on.
+A failure there is a statement about the data, not about the code.
 
 ```bash
-OTOG_RUNS=/scratch/$USER/otog_v2/runs .venv/bin/python -m pytest tests/test_run_data.py -q
-OTOG_SAMPLE=0 OTOG_EVERY_ORDER=1 .venv/bin/python -m pytest tests/test_run_data.py -q   # every
+OTOG_RUNS=/scratch/$USER/otog/runs .venv/bin/python -m pytest tests/test_run_data.py -q
+OTOG_SAMPLE=0 OTOG_EVERY_ORDER=1 .venv/bin/python -m pytest tests/test_run_data.py -q
 ```
-
-A failure there is a statement about the data, not about the code, so read it
-before changing anything.
-
-## Tutorials
-
-| | |
-|---|---|
-| [docs/HOPPER.md](docs/HOPPER.md) | a SLURM cluster |
-| [docs/CLOUDLAB.md](docs/CLOUDLAB.md) | CloudLab bare metal |
-| [docs/AWS.md](docs/AWS.md) | AWS, with cost per run |
-| [cloudlab_aws_config_steps.md](cloudlab_aws_config_steps.md) | CloudLab and AWS on one page |
 
 ## Layout
 
 ```
-setup.sh            engine check, images, directories
-run_experiment.sh   the experiment; edit the variables at the top
-run_once.sh         one order, once, in one container
-config_default.sh   settings; copy to config.sh to override
-lib.sh              what the scripts share
-container/          the engine layer and what runs inside the container
-data/versions.csv   module_id,slug,module,version,sha
+setup.sh              engine check, images, orders, seeded maven repo
+run_experiment.sh     the experiment: what runs, in what priority
+run_once.sh           one order, once, in one container
+config_default.sh     settings; copy to config.sh to override
+lib.sh                what the host-side scripts share
+fix_helper.sh         per-project build fixes, keyed on the version
+container/            the engine layer and what runs inside the container
+scripts/              order generation, adaptation, and the order-imposed check
+data/versions.csv     module_id,slug,module,version,sha
+requirements.txt      pytest and gdown
+tests/                the suite; see Tests above
 orders/<module>/<version>/<n>.txt              the test orders
 runs/<module>/<version>/order_<n>/run_<r>/     one measurement each
-requirements.txt    pytest and gdown; see Tests above
-tests/              the suite; see Tests above
-scripts/            standalone checks and one-off analysis
 ```
 
-Every script's first comment is a working example, then what it takes input and
-what is it's output.
+Every script's header is one usage line, one example, and what it takes and
+produces. Every function has a one-line comment.
+
+## More
+
+| | |
+|---|---|
+| [docs/design.md](docs/design.md) | why the code is the way it is — read before changing it |
+| [docs/jfr_runner_flow.md](docs/jfr_runner_flow.md) | what a profiled run records, and where |
+| [docs/HOPPER.md](docs/HOPPER.md) | a SLURM cluster |
+| [docs/CLOUDLAB.md](docs/CLOUDLAB.md) | CloudLab bare metal |
+| [docs/AWS.md](docs/AWS.md) | AWS, with cost per run |

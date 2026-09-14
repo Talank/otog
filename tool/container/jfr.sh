@@ -1,8 +1,10 @@
 #!/bin/bash
 #
-# source container/jfr.sh
+# usage: source container/jfr.sh
+# e.g.   source container/jfr.sh; jfr_before_mvn /out
 #
-# JFR profiling for entrypoint.sh; enabled only when OTOG_JFR is set.
+# JFR profiling for entrypoint.sh; does nothing unless OTOG_JFR is set.
+# What it records and why: docs/jfr_runner_flow.md.
 
 jfr_settings_file="${OTOG_JFR_SETTINGS:-profile}"
 
@@ -23,11 +25,12 @@ jfr_enabled() {
     [ -n "${OTOG_JFR:-}" ] && [ "${OTOG_JFR}" != "false" ] && [ "${OTOG_JFR}" != "0" ]
 }
 
+# The JDK's major version, from either the 1.8 or the modern format.
 jfr_java_major() {
-    # Handle both legacy (1.8) and modern version formats.
     java -version 2>&1 | sed -n '/version "/{s/.*version "//;p;q;}' | sed -e 's/^1\.//' -e 's/[^0-9].*//'
 }
 
+# The JAVA_TOOL_OPTIONS that turn recording on for every JVM the build starts.
 jfr_java_flags() {
     local jfr_dir=$1
     local jfrsort_agent_option=""
@@ -43,8 +46,8 @@ jfr_java_flags() {
     echo "${jfrsort_agent_option}-XX:StartFlightRecording=settings=${jfr_settings_file}${events},dumponexit=true,filename=$jfr_dir/"
 }
 
+# Drop maven's own recording when a separate test JVM produced one too.
 jfr_drop_maven_recording() {
-    # Drop Maven's file when a separate test JVM exists.
     local jfr_dir=$1
     local maven_pid=$2
 
@@ -52,6 +55,7 @@ jfr_drop_maven_recording() {
     return 0
 }
 
+# Name the recordings after the module, keeping every test-fork recording.
 jfr_name_recordings() {
     local jfr_dir=$1
     local name=${2//\//_}
@@ -77,37 +81,29 @@ jfr_count() {
 
 # THE PIPELINE
 
+# Turn recording on, and timestamp maven's output so events can be attributed.
 jfr_before_mvn() {
     jfr_enabled || return 0
     local jfr_dir=$1/jfr
 
-    # An absolute timestamp on every maven line, in UTC. Surefire prints
-    # "Running <class>" when a class starts and "Tests run: ... - in <class>"
-    # when it ends; with timestamps those pairs become exact class windows on
-    # the same clock JFR stamps its events with, which is what makes an event
-    # attributable to the test class that caused it.
-    #
-    # The jfrsort agent supplies the same windows more precisely, but only on
-    # JDK 17+, and NINE of the sixteen modules build on java 8. Without this
-    # their recordings have no class attribution at all -- and nothing else can
-    # supply it: the surefire XMLs are all flushed in the same moment at the end
-    # of a run, jdk.ClassLoad never fires for the test classes themselves, and
-    # jdk.ExecutionSample names a suite class in about 15% of its samples.
+    # Timestamps turn surefire's "Running <class>" / "Tests run: ... - in
+    # <class>" pairs into class windows on JFR's own clock. docs/design.md
+    # says why nothing else can supply them on java 8.
     export TZ=UTC
     MVN_OPTS="$MVN_OPTS -Dorg.slf4j.simpleLogger.showDateTime=true"
     MVN_OPTS="$MVN_OPTS -Dorg.slf4j.simpleLogger.dateTimeFormat=yyyy-MM-dd'T'HH:mm:ss.SSS"
 
-    # Start clean.
     rm -rf "$jfr_dir"
     mkdir -p "$jfr_dir"
 
-    # Use the startup environment so Maven and Surefire inherit it.
+    # The startup environment, so maven and surefire both inherit it.
     jfr_saved_tool_options="${JAVA_TOOL_OPTIONS:-}"
     export JAVA_TOOL_OPTIONS="${jfr_saved_tool_options:+$jfr_saved_tool_options }$(jfr_java_flags "$jfr_dir")"
 
-    print_info_message "🔬 JFR on: $JAVA_TOOL_OPTIONS"
+    print_info_message "jfr: on -- $JAVA_TOOL_OPTIONS"
 }
 
+# Put the environment back, then keep one named recording per test JVM.
 jfr_after_mvn() {
     jfr_enabled || return 0
     local jfr_dir=$1/jfr
@@ -119,9 +115,9 @@ jfr_after_mvn() {
     jfr_drop_maven_recording "$jfr_dir" "$maven_pid"
     jfr_name_recordings "$jfr_dir" "$module"
 
-    print_info_message "🔬 JFR recordings collected: $(jfr_count "$jfr_dir")"
+    print_info_message "jfr: $(jfr_count "$jfr_dir") recording(s) collected"
 
     if [ "$(jfr_count "$jfr_dir")" -eq 0 ]; then
-        print_fail_message "⚠️  JFR was requested but produced no recording"
+        print_fail_message "warning: jfr was requested but produced no recording"
     fi
 }
