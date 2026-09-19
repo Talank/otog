@@ -224,12 +224,19 @@ confirm an order still applies, not to profile it again.
 ends; with timestamps those pairs become class windows on the same clock JFR
 stamps its events with. They are a check on the windows that the agent in
 `aux/jfrsort-agent.jar` writes as `jfrsort.TestClass` events, one per test
-class, which jfrsort attributes events with.
+class, which jfrsort attributes events with. The agent is a JUnit Platform
+listener, and its premain puts the jar on the class path of the test JVM so
+the listener is found. Its source is in `agent/`.
 
 The recording settings are the same on every JDK. Event settings on the
 command line exist only from JDK 17 on, so `jfr_write_settings` copies the
-JVM's own `profile` preset into the run directory and changes the settings
-listed in `JFR_EVENT_RULES`. The allocation of a test class comes from the
+JVM's own `profile` preset into the run directory, as `jfr/otog.jfc`, and
+changes the settings listed in `JFR_EVENT_RULES`: the two TLAB allocation
+events are on, without stack traces, and the compilation, class load, file,
+socket, monitor, and sleep events have no threshold. These are the events
+behind the metrics of jfrsort and of the PROBO paper (Baz, Lam, and Shi,
+ISSTA 2026); the profile preset alone drops most of them through its
+thresholds. The allocation of a test class comes from the
 two TLAB events, the buffers handed out plus the objects too large for one,
 which exist on JDK 8 and give a measured amount. The allocation sample event
 of JDK 16 and later would give an estimate of the same amount and is turned

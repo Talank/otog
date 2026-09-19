@@ -233,7 +233,7 @@ check_jfrsort_agent() {
 
     [ -s "$aux_jar" ] || {
         fail "aux/ has no jfrsort-agent.jar"
-        fail "  build it from agent/ with a JDK 8 (see README, The agent) or restore the checkout"
+        fail "  build it from agent/pom.xml with a JDK 8 and copy it to aux/, or restore the checkout"
         return 1
     }
 

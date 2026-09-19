@@ -81,46 +81,26 @@ changes. A run can otherwise pass having measured nothing.
 
 ## Profile the runs and sort them with jfrsort
 
-With `jfr` set to `true`, the container starts each test JVM with the agent
-in `aux/jfrsort-agent.jar` and a Java Flight Recorder recording. The agent
-writes one event for each test class that spans the class's execution. The
-recording uses the JVM's own `profile` preset with these changes: the two
-TLAB allocation events are on, without stack traces, and the compilation,
-class load, file, socket, monitor, and sleep events have no threshold. These
-are the events behind the metrics of jfrsort and of the PROBO paper. The same
-settings go to every JDK, in a settings file that the container writes into
-the run directory. The recording of each profiled repetition is at
-`runs/<module>/<version>/order_<n>/jfr_run_<r>/jfr/<module>.jfr`.
+Set `jfr` to `true` to record each run with Java Flight Recorder:
 
-The recordings are small and the run directories are not. This script copies
-the recordings of one module version, with their orders, into a directory
-that holds nothing else:
+```bash
+bash run_experiment.sh 1685 v0 "1 5" true
+```
+
+Each profiled repetition writes its recording to
+`runs/<module>/<version>/order_<n>/jfr_run_<r>/jfr/<module>.jfr`. To take the
+recordings of one version off the machine, export them into a directory of
+their own, then sort that directory with jfrsort. Sorting needs a `jfr`
+command from JDK 17 or later:
 
 ```bash
 python3 scripts/export_jfr.py runs/1685/0 exports/1685/0
-```
-
-It takes each `jfr_run_<r>` that passed and has a recording, and writes
-`collect.json` in the form that jfrsort reads. All paths in it are relative
-to the export directory, so the directory can be moved to another machine
-and sorted there:
-
-```bash
 python3 ../jfrsort/jfrsort.py sort --out exports/1685/0
 ```
 
-Sorting needs a `jfr` command from JDK 17 or later on the analysis machine.
-It reads recordings from every JDK the containers use.
-
-## The agent
-
-The source is in `agent/`. It is a JUnit Platform listener that writes one
-`jfrsort.TestClass` event for each top-level test class, and a premain that
-puts the jar on the class path of the test JVM. It is built with a JDK 8 of
-update 262 or later, which has the Flight Recorder API, so that the jar loads
-on every JDK the containers use. The built jar is committed as
-`aux/jfrsort-agent.jar`; `setup.sh` compiles nothing. To rebuild it, run
-Maven on `agent/pom.xml` with a JDK 8 and copy the jar to `aux/`.
+The recordings are made with the agent in `aux/jfrsort-agent.jar`, which is
+committed. To rebuild it, run Maven on `agent/pom.xml` with a JDK 8 and copy
+the jar to `aux/`. What is recorded and why: `docs/design.md`, "JFR".
 
 ## The container
 
