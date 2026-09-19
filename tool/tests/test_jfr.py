@@ -74,31 +74,59 @@ def test_java_major_parses_both_version_schemes():
         assert out.stdout.strip() == want, f"{reported} parsed as {out.stdout!r}"
 
 
-def test_jfrsort_profile_events_are_enabled_on_jdk_17(tmp_path):
-    out = call(f'jfr_java_flags "{tmp_path}"', java_version="17")
-    assert "settings=profile" in out.stdout
-    assert "jdk.ObjectAllocationSample#throttle=1000/s" in out.stdout
-    assert "jdk.Compilation#threshold=0ms" in out.stdout
-    assert "jdk.ClassLoad#enabled=true" in out.stdout
-    assert "jdk.FileRead#threshold=0ms" in out.stdout
-    assert "jdk.SocketRead#threshold=0ms" in out.stdout
-    assert "jdk.JavaMonitorEnter#threshold=0ms" in out.stdout
-    assert "jdk.ThreadSleep#threshold=0ms" in out.stdout
+def test_the_settings_file_carries_the_jfrsort_and_probo_events(tmp_path):
+    # Event settings on the command line exist only from JDK 17 on, so every
+    # JDK gets them the one way all of them accept: a copy of the preset with
+    # the settings changed.
+    out = call(f'jfr_java_flags "{tmp_path}"')
+    assert f"settings={tmp_path}/otog.jfc" in out.stdout
+    settings = (tmp_path / "otog.jfc").read_text()
+
+    def setting(event, name):
+        block = settings[settings.index(f'<event name="{event}">'):]
+        block = block[:block.index("</event>")]
+        line = [l for l in block.splitlines() if f'<setting name="{name}"' in l][0]
+        return line[line.index(">") + 1:line.index("</setting>")]
+
+    assert setting("jdk.ObjectAllocationInNewTLAB", "enabled") == "true"
+    assert setting("jdk.ObjectAllocationInNewTLAB", "stackTrace") == "false"
+    assert setting("jdk.ObjectAllocationOutsideTLAB", "enabled") == "true"
+    assert setting("jdk.ObjectAllocationOutsideTLAB", "stackTrace") == "false"
+    assert setting("jdk.Compilation", "threshold") == "0 ms"
+    assert setting("jdk.ClassLoad", "enabled") == "true"
+    assert setting("jdk.FileRead", "threshold") == "0 ms"
+    assert setting("jdk.SocketRead", "threshold") == "0 ms"
+    assert setting("jdk.JavaMonitorEnter", "threshold") == "0 ms"
+    assert setting("jdk.ThreadSleep", "threshold") == "0 ms"
 
 
-def test_jfrsort_agent_only_on_17_and_up(tmp_path):
-    # The custom test-window event uses the JDK 17 jdk.jfr API. The default
-    # profile remains available on older JDKs without the attribution agent.
-    for version in ("8", "11"):
+def test_allocation_is_counted_once(tmp_path):
+    # JDK 16 and later have the allocation sample event on in the profile
+    # preset. With the TLAB events on as well, the same bytes would be
+    # counted twice.
+    call(f'jfr_java_flags "{tmp_path}"')
+    settings = (tmp_path / "otog.jfc").read_text()
+    if '<event name="jdk.ObjectAllocationSample">' in settings:
+        block = settings[settings.index('<event name="jdk.ObjectAllocationSample">'):]
+        block = block[:block.index("</event>")]
+        assert '<setting name="enabled"' in block
+        assert ">false</setting>" in [l for l in block.splitlines() if "enabled" in l][0]
+
+
+def test_the_agent_is_attached_on_every_jdk(tmp_path):
+    # The agent is built for JDK 8. Nine of the sixteen modules run on 8.
+    for version in ("8", "11", "17", "21"):
         out = call(f'jfr_java_flags "{tmp_path}"', java_version=version)
-        assert "-javaagent" not in out.stdout
+        if Path("/otog/aux/jfrsort-agent.jar").is_file():
+            assert "-javaagent:/otog/aux/jfrsort-agent.jar" in out.stdout
         assert "ObjectAllocationSample#" not in out.stdout
 
-    out = call(f'jfr_java_flags "{tmp_path}"', java_version="17")
-    if Path("/otog/aux/jfrsort-agent.jar").is_file():
-        assert "-javaagent" in out.stdout
-    else:
-        assert "-javaagent" not in out.stdout
+
+def test_a_missing_preset_fails_the_profiled_run(tmp_path):
+    out = call(f'jfr_before_mvn "{tmp_path}"; echo "rc=$?"',
+               env={"OTOG_JFR_SETTINGS": str(tmp_path / "missing.jfc")})
+    assert "rc=1" in out.stdout
+    assert "settings could not be written" in out.stdout
 
 
 def test_recordings_are_written_into_the_run_not_the_repo(tmp_path):

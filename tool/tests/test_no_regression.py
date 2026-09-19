@@ -281,14 +281,12 @@ def test_a_plain_run_passes_the_jvm_exactly_what_the_collected_runs_got():
 
 def test_a_profiled_run_can_still_be_attributed_to_test_classes():
     # JFR events are only useful if you can say which test class caused them.
-    # Two mechanisms do that: the jfrsort agent, which needs JDK 17+, and
-    # timestamped maven lines, which work everywhere. NINE of the sixteen
-    # modules build on java 8, so dropping the timestamps would leave most of
-    # the campaign's recordings unattributable.
+    # The agent writes one window event per test class, and the timestamped
+    # maven lines are the check on those windows. Both must stay.
     jfr = (REPO / "container" / "jfr.sh").read_text()
     assert "TZ=UTC" in jfr, "recordings and the maven log would be on different clocks"
     assert "simpleLogger.showDateTime" in jfr, "maven lines carry no timestamp"
-    assert "jfrsort-agent.jar" in jfr, "the JDK 17+ agent is gone too"
+    assert "jfrsort-agent.jar" in jfr, "the agent is gone"
 
 
 def test_nothing_touches_the_surefire_fork_flags():

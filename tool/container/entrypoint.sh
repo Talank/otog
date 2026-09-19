@@ -203,7 +203,7 @@ run_the_order() {
 
     print_info_message "running the order: $(wc -l < "$effective_order_file" | tr -d ' ') tests"
 
-    jfr_before_mvn "$out_dir"
+    jfr_before_mvn "$out_dir" || return 1
 
     # Backgrounded only so its pid is knowable: the mvn script execs the JVM,
     # so $! is maven's own JVM, the one recording JFR must throw away.
