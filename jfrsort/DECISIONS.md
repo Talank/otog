@@ -232,3 +232,44 @@ orders decorrelate a class from its position, which a repeated fixed order canno
 order. The sort keeps the initial order for classes with equal values only, and
 those are the classes with no samples, thus the source of the initial order is not
 important.
+
+## D34 — Collection moves to the tool (replaces D2, D3, D19, D26, D28, D29, D31, D32)
+
+jfrsort has only the `sort` command now. The tool in `../tool` runs the suite in a
+container and makes the recordings, with the agent attached. The agent source is in
+`../tool/agent`. We move collection out because the agent must be built with JDK 8
+(D36) and the analysis needs JDK 17 or later, and one project should not need two
+JDKs. The tool's script `scripts/export_jfr.py` copies the recordings of one module
+version into a directory with the file `collect.json`, and `sort` reads that
+directory. Thus the recordings can go to another machine without the run
+directories.
+
+## D35 — Allocation metric from the TLAB events (replaces D5, D22)
+
+We measure allocation with the two TLAB events on every JDK: the field `tlabSize` of
+`jdk.ObjectAllocationInNewTLAB`, which is the size of each buffer that a thread
+receives, plus the field `allocationSize` of `jdk.ObjectAllocationOutsideTLAB`, which
+is the size of each object too large for a buffer. The sum is a measured amount,
+rounded to whole buffers at the window edges. `jdk.ObjectAllocationSample` exists
+only on JDK 16 and later, and nine of the sixteen modules of the tool run on JDK 8.
+We turn the sample event off in the recording so that allocation is counted once. We
+do not record stack traces for the TLAB events, because window attribution (D21) does
+not read them and the stack traces are the main cost of these events.
+
+Note: PROBO (D27) computes its allocation rate from the field `allocationSize` of
+`jdk.ObjectAllocationInNewTLAB`, which is the size of the one object that caused the
+new buffer, not the size of the buffer. On a jsoup recording from the PROBO artifact
+that gives 343 MB where the buffers sum to 1168 MB and the GC log shows at least
+888 MB. We use `tlabSize`.
+
+## D36 — Agent built for JDK 8
+
+The agent is compiled with a JDK 8 of update 262 or later, which has the `jdk.jfr`
+API. The class files load on every JDK from 8 on. The agent uses no API newer than
+Java 8.
+
+## D37 — Same recording settings on every JDK
+
+The tool gives every JDK the same settings file: a copy of the JVM's own `profile`
+preset with the changes of D27 and D35. Event settings on the command line exist
+only from JDK 17 on, and a settings file is the one form that every JDK accepts.
