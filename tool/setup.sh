@@ -227,13 +227,13 @@ check_surefire_fork() {
     say "have   surefire fork $surefire_fork_version (with the JUnit 5 method orderer)"
 }
 
-# The jfrsort agent ships built, like the surefire extension: setup compiles nothing.
+# The agent ships built, like the surefire extension: setup compiles nothing.
 check_jfrsort_agent() {
     local aux_jar="$tool_dir/aux/jfrsort-agent.jar"
 
     [ -s "$aux_jar" ] || {
         fail "aux/ has no jfrsort-agent.jar"
-        fail "  rebuild it from jfrsort/agent and commit it, or restore the checkout"
+        fail "  build it from agent/ with a JDK 8 (see README, The agent) or restore the checkout"
         return 1
     }
 

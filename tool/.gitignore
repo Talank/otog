@@ -12,3 +12,4 @@ images_sif/
 slurm_logs/
 
 .venv/
+agent/target/

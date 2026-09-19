@@ -8,12 +8,15 @@
   <version>1.0</version>
   <packaging>jar</packaging>
 
+  <!-- Build with a JDK 8 of update 262 or later, which has the jdk.jfr API.
+       The class files then load on every JDK the containers use. -->
   <properties>
-    <maven.compiler.release>17</maven.compiler.release>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
 
-  <!-- provided: at runtime the JUnit Platform comes from the target project's own test classpath -->
+  <!-- provided: at run time the JUnit Platform comes from the test classpath of the project under test -->
   <dependencies>
     <dependency>
       <groupId>org.junit.platform</groupId>
