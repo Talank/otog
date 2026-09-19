@@ -79,6 +79,49 @@ python3 scripts/check_order_imposed.py orders/1685/0/1.txt runs/1685/0/order_1/r
 Worth doing once on a new machine, and any time the JDK or the surefire fork
 changes. A run can otherwise pass having measured nothing.
 
+## Profile the runs and sort them with jfrsort
+
+With `jfr` set to `true`, the container starts each test JVM with the agent
+in `aux/jfrsort-agent.jar` and a Java Flight Recorder recording. The agent
+writes one event for each test class that spans the class's execution. The
+recording uses the JVM's own `profile` preset with these changes: the two
+TLAB allocation events are on, without stack traces, and the compilation,
+class load, file, socket, monitor, and sleep events have no threshold. These
+are the events behind the metrics of jfrsort and of the PROBO paper. The same
+settings go to every JDK, in a settings file that the container writes into
+the run directory. The recording of each profiled repetition is at
+`runs/<module>/<version>/order_<n>/jfr_run_<r>/jfr/<module>.jfr`.
+
+The recordings are small and the run directories are not. This script copies
+the recordings of one module version, with their orders, into a directory
+that holds nothing else:
+
+```bash
+python3 scripts/export_jfr.py runs/1685/0 exports/1685/0
+```
+
+It takes each `jfr_run_<r>` that passed and has a recording, and writes
+`collect.json` in the form that jfrsort reads. All paths in it are relative
+to the export directory, so the directory can be moved to another machine
+and sorted there:
+
+```bash
+python3 ../jfrsort/jfrsort.py sort --out exports/1685/0
+```
+
+Sorting needs a `jfr` command from JDK 17 or later on the analysis machine.
+It reads recordings from every JDK the containers use.
+
+## The agent
+
+The source is in `agent/`. It is a JUnit Platform listener that writes one
+`jfrsort.TestClass` event for each top-level test class, and a premain that
+puts the jar on the class path of the test JVM. It is built with a JDK 8 of
+update 262 or later, which has the Flight Recorder API, so that the jar loads
+on every JDK the containers use. The built jar is committed as
+`aux/jfrsort-agent.jar`; `setup.sh` compiles nothing. To rebuild it, run
+Maven on `agent/pom.xml` with a JDK 8 and copy the jar to `aux/`.
+
 ## The container
 
 Every run gets **4 CPUs and 16 GB**, on every machine and both engines, from a
@@ -123,12 +166,14 @@ config_default.sh     settings; copy to config.sh to override
 lib.sh                what the host-side scripts share
 fix_helper.sh         per-project build fixes, keyed on the version
 container/            the engine layer and what runs inside the container
-scripts/              order generation, adaptation, and the order-imposed check
+agent/                the test-window agent for the recordings; built jar in aux/
+scripts/              order generation, adaptation, the order-imposed check, the recording export
 data/versions.csv     module_id,slug,module,version,sha
 requirements.txt      pytest and gdown
 tests/                the suite; see Tests above
 orders/<module>/<version>/<n>.txt              the test orders
 runs/<module>/<version>/order_<n>/run_<r>/     one measurement each
+runs/<module>/<version>/order_<n>/jfr_run_<r>/ one profiled measurement each
 ```
 
 Every script's header is one usage line, one example, and what it takes and

@@ -222,10 +222,19 @@ confirm an order still applies, not to profile it again.
 `jfr_before_mvn` asks maven for timestamped output. Surefire prints
 `Running <class>` when a class starts and `Tests run: ... - in <class>` when it
 ends; with timestamps those pairs become class windows on the same clock JFR
-stamps its events with. The jfrsort agent gives better windows but needs JDK
-17+, and nine of the sixteen modules build on java 8 — without the timestamps
-their recordings have no class attribution at all, and nothing else can supply
-it. Full flow: `docs/jfr_runner_flow.md`.
+stamps its events with. They are a check on the windows that the agent in
+`aux/jfrsort-agent.jar` writes as `jfrsort.TestClass` events, one per test
+class, which jfrsort attributes events with.
+
+The recording settings are the same on every JDK. Event settings on the
+command line exist only from JDK 17 on, so `jfr_write_settings` copies the
+JVM's own `profile` preset into the run directory and changes the settings
+listed in `JFR_EVENT_RULES`. The allocation of a test class comes from the
+two TLAB events, the buffers handed out plus the objects too large for one,
+which exist on JDK 8 and give a measured amount. The allocation sample event
+of JDK 16 and later would give an estimate of the same amount and is turned
+off so that nothing is counted twice. The agent is built for JDK 8 for the
+same reason: nine of the sixteen modules run on it.
 
 ## Engines
 
