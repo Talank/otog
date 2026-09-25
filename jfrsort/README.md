@@ -27,6 +27,7 @@ python3 jfrsort.py sort --out exports/1685/0
 | `--out DIR` | The directory that `export_jfr.py` wrote. Default: `.jfrsort`. |
 | `--metric NAME` | The metric to sort by. Default and only value: `alloc`. |
 | `--jfr-bin BIN` | The `jfr` binary. Default: `jfr`. |
+| `--jobs N` | The number of recordings parsed in parallel. Default: the number of CPUs. |
 
 ## The metric
 

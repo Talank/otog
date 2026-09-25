@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """jfrsort: sort the test classes of a Maven project by a metric from JFR recordings.
 
-  jfrsort.py sort [--out DIR] [--metric alloc] [--jfr-bin BIN]
+  jfrsort.py sort [--out DIR] [--metric alloc] [--jfr-bin BIN] [--jobs N]
 
 The recordings come from the tool (../tool), which runs the suite in a container
 with the agent in ../tool/agent attached. The agent's JUnit Platform listener
@@ -26,10 +26,13 @@ import argparse
 import bisect
 import csv
 import json
+import os
 import re
 import subprocess
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 WINDOW_EVENT = "jfrsort.TestClass"
@@ -126,16 +129,15 @@ def parse_recording(jfr_bin: str, rec: Path, metric: dict) -> dict | None:
             "order": order, "events": seen}
 
 
-def collect_run(jfr_bin: str, jfr_dir: Path, metric: dict) -> dict:
-    """Parse every recording of one run and merge the test-JVM results."""
+def merge_run(jfr_dir: Path, parsed: list) -> dict:
+    """Merge the test-JVM results of one run's recordings, given in sorted order."""
     merged: dict[str, float] = {}
     window_ms: dict[str, float] = {}
     order: list[str] = []
     events: dict[str, int] = {}
     unattributed = 0.0
     kept, dropped = [], []
-    for rec in sorted(jfr_dir.glob("*.jfr")):
-        data = parse_recording(jfr_bin, rec, metric)
+    for rec, data in parsed:
         if data is None:
             dropped.append(rec.name)
             continue
@@ -167,28 +169,41 @@ def cmd_sort(args):
     if not manifest["runs"]:
         sys.exit("jfrsort: collect.json lists no runs")
 
-    runs = []
-    tests_initial = None
-    for rec in manifest["runs"]:                 # the first run gives the initial order
+    # Every recording is parsed independently, so all of them, across all runs,
+    # go to one process pool. map() yields results in submission order, and the
+    # merge below runs in the main process in that order, so the sums and the
+    # output are the same as a sequential parse.
+    run_recs = []                                # (manifest entry, run dir, recordings)
+    for rec in manifest["runs"]:
         run_dir = out / rec["dir"]
         if not (run_dir / "jfr").is_dir():
             sys.exit(f"jfrsort: {run_dir}/jfr missing")
-        data = collect_run(args.jfr_bin, run_dir / "jfr", metric)
-        (run_dir / "metrics.json").write_text(json.dumps(data, indent=1))
-        runs.append(data)
-        if tests_initial is None:
-            tests_initial = data["order"]
-        elif set(data["order"]) != set(tests_initial):
-            print(f"[jfrsort] WARNING: {rec['dir']} test set differs; using the union",
-                  file=sys.stderr)
-            tests_initial += [t for t in data["order"] if t not in tests_initial]
-        attr = sum(data["per_class"].values())
-        total = attr + data["unattributed"]
-        pct = 100.0 * attr / total if total else 0.0
-        sources = ", ".join(f"{n} {ev.split('.')[-1]}" for ev, n in sorted(data["events"].items()))
-        print(f"[jfrsort] {rec['dir']}: {len(data['order'])} classes, "
-              f"{pct:.1f}% of {args.metric} weight attributed, from {sources or 'no events'}",
-              flush=True)
+        run_recs.append((rec, run_dir, sorted((run_dir / "jfr").glob("*.jfr"))))
+    all_recs = [r for _, _, recs in run_recs for r in recs]
+
+    runs = []
+    tests_initial = None
+    with ProcessPoolExecutor(max_workers=args.jobs) as pool:
+        results = pool.map(partial(parse_recording, args.jfr_bin, metric=metric), all_recs)
+        for rec, run_dir, recs in run_recs:      # the first run gives the initial order
+            data = merge_run(run_dir / "jfr", [(r, next(results)) for r in recs])
+            (run_dir / "metrics.json").write_text(json.dumps(data, indent=1))
+            runs.append(data)
+            if tests_initial is None:
+                tests_initial = data["order"]
+            elif set(data["order"]) != set(tests_initial):
+                print(f"[jfrsort] WARNING: {rec['dir']} test set differs; using the union",
+                      file=sys.stderr)
+                tests_initial += [t for t in data["order"] if t not in tests_initial]
+            attr = sum(data["per_class"].values())
+            total = attr + data["unattributed"]
+            pct = 100.0 * attr / total if total else 0.0
+            sources = ", ".join(f"{n} {ev.split('.')[-1]}"
+                                for ev, n in sorted(data["events"].items()))
+            print(f"[jfrsort] {rec['dir']}: {len(data['order'])} classes, "
+                  f"{pct:.1f}% of {args.metric} weight attributed, "
+                  f"from {sources or 'no events'}", flush=True)
+
 
     # average over all runs; a class with no samples in a run counts 0 for that run
     mean = {t: sum(r["per_class"].get(t, 0.0) for r in runs) / len(runs)
@@ -223,6 +238,8 @@ def main():
                    help="the directory with collect.json and the runs")
     s.add_argument("--metric", choices=sorted(METRICS), default="alloc")
     s.add_argument("--jfr-bin", default="jfr")
+    s.add_argument("--jobs", type=int, default=os.cpu_count() or 1,
+                   help="recordings parsed in parallel (default: the number of CPUs)")
     s.set_defaults(func=cmd_sort)
 
     args = ap.parse_args()
