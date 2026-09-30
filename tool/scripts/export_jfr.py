@@ -15,6 +15,7 @@
 #      and order.txt; the number of runs and the size on stdout
 
 import json
+import os
 import re
 import shutil
 import sys
@@ -62,7 +63,16 @@ def export_run(run_dir, version_dir, export_dir):
     (dest / "jfr").mkdir(parents=True, exist_ok=True)
     copied = 0
     for rec in (run_dir / "jfr").glob("*.jfr"):
-        shutil.copyfile(rec, dest / "jfr" / rec.name)
+        target = dest / "jfr" / rec.name
+        # Hardlink where the filesystem allows it: an export of one module
+        # version can be 65 GB of recordings, and jfrsort only reads them.
+        # Falls back to a copy, which is what a cross-filesystem export needs.
+        if target.exists():
+            target.unlink()
+        try:
+            os.link(rec, target)
+        except OSError:
+            shutil.copyfile(rec, target)
         copied += rec.stat().st_size
     order = run_dir / "order.txt"
     if order.is_file():

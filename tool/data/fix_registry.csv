@@ -439,3 +439,4 @@ apache/iotdb::iotdb-core/confignode@3f2cd13298ba19ff68fdbf2c87ecdbdda5533587,for
 apache/iotdb::iotdb-core/confignode@dbdf1d02c8b015980568139ec6e9980dc9bb0386,force_test_heap
 apache/iotdb::iotdb-core/confignode@0f656575928cc100c72e98ffdb2cd4397d613dc5,force_test_heap
 apache/iotdb::iotdb-core/confignode@51bad1ec88d5d20aa4e84f3ccd6841fbfba75390,force_test_heap
+flowable/flowable-engine::modules/flowable-engine@7dd05695e94d493e72f75b8706c43425a4ec8015,force_test_heap

@@ -24,3 +24,32 @@ results_error_v50
 .DS_Store
 probo/
 .DS_Store
+
+# results/ holds the campaign's summary csvs and is tracked. The bare "results"
+# rule above predates it and excludes the directory itself, which no rule inside
+# it can undo -- so the directory is re-included here, after it.
+# !/results/
+
+results/summary_by_module_all.csv
+results/summary_by_module_spread.csv
+results/summary_spread.csv
+results/summary_table_coverage.csv
+results/summary_table_matched.csv
+results/summary_table_median.csv
+results/summary_table_no_v0.csv
+results/summary_table.csv
+results/vs_naive_by_module.csv
+results/vs_naive_counts_numerator.csv
+results/vs_naive_counts.csv
+
+# jupyter writes these into whatever directory a csv is opened from
+.ipynb_checkpoints/
+
+__pycache__/
+
+
+results/README.md
+
+summary_merged_runs/*
+
+tool/docs/*

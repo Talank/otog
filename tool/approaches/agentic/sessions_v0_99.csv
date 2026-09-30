@@ -1,0 +1,17 @@
+module_id,target_version,agent,mode,session,historical_range,context_versions,budget_versions,historical_budget_seconds,historical_best_version,historical_best_original_seconds,agent_generated_orders,agent_measured_candidate_runs,agent_best_run_no,agent_best_seconds,best,agent_budget_seconds,agent_elapsed_seconds,agent_exit_code,agent_timed_out,agent_input_tokens,agent_output_tokens,agent_total_tokens,agent_api_cost,agent_model,agent_tools_used
+20,,claude,,,,,,,,,10,,candidate_1,419.800006,,12553,52.747642,0,False,28,214,242,,claude-opus-5-5,Bash:8
+29,,claude,,,,,,,,,10,,candidate_2,58.401644,,446,55.374342,0,False,28,208,236,,claude-opus-5-5,Bash:8
+33,,claude,,,,,,,,,10,,candidate_2,751.872836,,2102,42.673754,0,False,28,105,133,,claude-opus-5-5,Bash:8
+1117,,claude,,,,,,,,,10,,candidate_5,756.279437,,6154,101.453103,0,False,48,271,319,,claude-opus-5-5,Bash:13
+1122,,claude,,,,,,,,,10,,candidate_8,69.115310,,995,209.360361,0,False,58,342,400,,claude-opus-5-5,Bash:18
+1216,,claude,,,,,,,,,10,,candidate_1,293.648075,,4665,58.855712,0,False,28,88,116,,claude-opus-5-5,Bash:7
+1305,,claude,,,,,,,,,10,,candidate_2,173.671999,,1220,193.521140,0,False,42,167,209,,claude-opus-5-5,Bash:16
+1497,,claude,,,,,,,,,10,,candidate_4,47.020025,,425,41.158009,0,False,26,95,121,,claude-opus-5-5,Bash:7
+1683,,claude,,,,,,,,,10,,candidate_2,30.606930,,218,43.411559,0,False,24,165,189,,claude-opus-5-5,Bash:7
+1685,,claude,,,,,,,,,10,,candidate_5,30.982964,,260,50.072700,0,False,28,117,145,9,claude-opus-5-5,Bash:7
+1694,,claude,,,,,,,,,10,,candidate_3,218.246734,,1369,144.844737,0,False,50,185,235,,claude-opus-5-5,Bash:14
+1778,,claude,,,,,,,,,10,,candidate_2,8.060740,,140,106.404236,0,False,26,122,148,,claude-opus-5-5,Bash:9
+2088,,claude,,,,,,,,,10,,candidate_3,46.684640,,465,178.438317,0,False,38,168,206,,claude-opus-5-5,Bash:15
+3320,,claude,,,,,,,,,10,,candidate_7,1507.214305,,14290,40.895657,0,False,24,88,112,,claude-opus-5-5,Bash:6
+3323,,claude,,,,,,,,,10,,candidate_5,677.809240,,6568,48.098304,0,False,30,86,116,,claude-opus-5-5,Bash:8
+3613,,claude,,,,,,,,,10,,candidate_4,433.035661,,21614,82.249983,0,False,38,155,193,,claude-opus-5-5,Bash:11

@@ -102,6 +102,39 @@ The recordings are made with the agent in `aux/jfrsort-agent.jar`, which is
 committed. To rebuild it, run Maven on `agent/pom.xml` with a JDK 8 and copy
 the jar to `aux/`. What is recorded and why: `docs/design.md`, "JFR".
 
+## Build an order, and measure it
+
+`approaches/` holds three ways to build a fast order out of runs already
+measured, and the installer that makes one runnable beside the random orders:
+
+```bash
+bash approaches/warmsort/sweep_warmsort.sh 1685 /tmp/orders
+bash run_experiment.sh --one 1685 0 orders/1685/0/warmsort_v0_99.txt v0
+```
+
+The sweep builds all five of a module's orders and installs each one, so the
+second line can run straight away. Installing happens through
+`install_order.py`, which puts the order at v0 and adapts it forward to every
+future version, exactly as the 100 random orders were adapted; called by hand it
+needs the tool directory as a fourth argument. Which approach does what, and the
+five input sets each is judged on, is in `approaches/README.md`.
+
+## Turn the runs into numbers
+
+Three steps, each resumable, each idempotent:
+
+```bash
+python3 scripts/summarize_runs.py runs/ summary/ "" 8 --all-runs
+python3 ../analysis/build_master.py summary/ ../results/master.csv
+python3 ../analysis/summarize_master.py ../results/master.csv ../results
+```
+
+`summarize_runs.py` is the only thing that ever parses a surefire report, and
+those reports are the only source of a runtime — wall time swings with machine
+load by a factor of 25 and would rank the machine rather than the order. The two
+scripts after it are in `../analysis/`, and `../results/` is what they wrote for
+this campaign.
+
 ## The container
 
 Every run gets **4 CPUs and 16 GB**, on every machine and both engines, from a
@@ -148,6 +181,8 @@ fix_helper.sh         per-project build fixes, keyed on the version
 container/            the engine layer and what runs inside the container
 agent/                the test-window agent for the recordings; built jar in aux/
 scripts/              order generation, adaptation, the order-imposed check, the recording export
+approaches/           three ways to build an order, and the installer that makes one runnable
+docs/findings.md      what the measurements did and did not show
 data/versions.csv     module_id,slug,module,version,sha
 requirements.txt      pytest and gdown
 tests/                the suite; see Tests above
@@ -155,6 +190,9 @@ orders/<module>/<version>/<n>.txt              the test orders
 runs/<module>/<version>/order_<n>/run_<r>/     one measurement each
 runs/<module>/<version>/order_<n>/jfr_run_<r>/ one profiled measurement each
 ```
+
+One level up, outside the tool: `../analysis/` is the two scripts that reduce the
+runs to tables, and `../results/` holds the tables they produced.
 
 Every script's header is one usage line, one example, and what it takes and
 produces. Every function has a one-line comment.
