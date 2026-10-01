@@ -1,0 +1,11 @@
+id,slug,module,total_classes,total_ci_time
+3613,apache/paimon,paimon-core,222,830.8837599999999
+1122,flowable/flowable-engine,modules/flowable-cmmn-engine,160,89.6762
+1117,flowable/flowable-engine,modules/flowable-engine,411,289.65915900000005
+1685,javaparser/javaparser,javaparser-core-testing,226,25.364894
+1683,javaparser/javaparser,javaparser-symbol-solver-testing,252,22.229820999999998
+2088,liquibase/liquibase,liquibase-standard,146,51.58240900000001
+33,netty/netty,handler,67,215.61222299999997
+29,netty/netty,transport,46,44.532130000000016
+20,netty/netty,transport-native-epoll,80,286.7342020000001
+1778,spring-projects/spring-ai,models/spring-ai-openai,45,3.800710999999999

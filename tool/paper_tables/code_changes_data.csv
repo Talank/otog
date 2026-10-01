@@ -1,0 +1,11 @@
+id,slug,module,Commits V0-V25,Commits V0-V50,Commits V0-V75,Commits V0-V100,Lines added/deleted V0-V25,Lines added/deleted V0-V50,Lines added/deleted V0-V75,Lines added/deleted V0-V100
+3613,apache/paimon,paimon-core,67,115,159,199,15078,34666,43240,50990
+1122,flowable/flowable-engine,modules/flowable-cmmn-engine,47,164,253,300,9911,74704,101704,109392
+1117,flowable/flowable-engine,modules/flowable-engine,76,222,278,336,17411,85077,106593,117992
+1685,javaparser/javaparser,javaparser-core-testing,147,286,520,707,8811,15463,109924,112764
+1683,javaparser/javaparser,javaparser-symbol-solver-testing,193,290,491,610,7994,97061,103054,105231
+2088,liquibase/liquibase,liquibase-standard,68,104,138,223,3967,6110,9215,13301
+33,netty/netty,handler,132,265,1370,1997,19872,36182,128754,192370
+29,netty/netty,transport,147,341,479,2043,24662,50486,64419,202424
+20,netty/netty,transport-native-epoll,154,318,594,2311,14050,64328,101745,253434
+1778,spring-projects/spring-ai,models/spring-ai-openai,186,342,491,647,58145,169149,206182,231382

@@ -13,3 +13,5 @@ slurm_logs/
 
 .venv/
 agent/target/
+
+tool/paper_tables/repos
