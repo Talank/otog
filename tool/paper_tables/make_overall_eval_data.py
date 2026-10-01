@@ -63,8 +63,8 @@ def saving(row, column):
 
 
 def version_saving(rows, column, version):
-    """Mean saving over the modules at one version."""
-    return mean(saving(r, column) for r in rows if int(r["version"]) == version)
+    """Mean saving over the modules at one version (a number or "latest")."""
+    return mean(saving(r, column) for r in rows if r["version"] == str(version))
 
 
 def overall_saving(rows, column):
